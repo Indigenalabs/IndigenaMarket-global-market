@@ -1,0 +1,72 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
+import { updateCreatorProfileOfferingDetails, type ProfileOffering } from '@/app/profile/data/profileShowcase';
+
+function asText(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+export async function POST(req: NextRequest) {
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body) return NextResponse.json({ message: 'Invalid listing payload.' }, { status: 400 });
+
+  const slug = asText(body.slug);
+  const offeringId = asText(body.offeringId);
+  if (!slug || !offeringId) {
+    return NextResponse.json({ message: 'Profile slug and offering id are required.' }, { status: 400 });
+  }
+
+  const owner = await requireCreatorProfileOwner(req, slug, {
+    guestMessage: 'Connect your wallet to edit a listing.',
+    forbiddenMessage: 'You can only edit your own listings.',
+    select: 'owner_actor_id'
+  });
+  if ('error' in owner) return owner.error;
+
+  if (owner.supabase) {
+    const { error } = await owner.supabase
+      .from('creator_profile_offerings')
+      .update({
+        title: asText(body.title),
+        blurb: asText(body.blurb),
+        price_label: asText(body.priceLabel),
+        status: asText(body.status),
+        cover_image_url: asText(body.coverImage),
+        cta_mode: ['view', 'buy', 'book', 'enroll', 'quote', 'message'].includes(asText(body.ctaMode)) ? asText(body.ctaMode) : 'view',
+        cta_preset: ['collect-now', 'book-now', 'enroll-now', 'request-quote', 'message-first'].includes(asText(body.ctaPreset)) ? asText(body.ctaPreset) : null,
+        merchandising_rank: Number.isFinite(Number(body.merchandisingRank)) ? Number(body.merchandisingRank) : 0,
+        gallery_order: Array.isArray(body.galleryOrder) ? body.galleryOrder : [],
+        launch_window_starts_at: asText(body.launchWindowStartsAt) || null,
+        launch_window_ends_at: asText(body.launchWindowEndsAt) || null,
+        availability_label: asText(body.availabilityLabel),
+        availability_tone: (['default', 'success', 'warning', 'danger'].includes(asText(body.availabilityTone)) ? asText(body.availabilityTone) : 'default'),
+        featured: Boolean(body.featured),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', offeringId)
+      .eq('profile_slug', slug);
+
+    if (error) {
+      return NextResponse.json({ message: error.message || 'Unable to save listing changes.' }, { status: 500 });
+    }
+  }
+
+  const profile = updateCreatorProfileOfferingDetails(slug, offeringId, {
+    title: asText(body.title),
+    blurb: asText(body.blurb),
+    priceLabel: asText(body.priceLabel),
+    status: asText(body.status),
+    coverImage: asText(body.coverImage),
+    ctaMode: (['view', 'buy', 'book', 'enroll', 'quote', 'message'].includes(asText(body.ctaMode)) ? asText(body.ctaMode) : 'view') as ProfileOffering['ctaMode'],
+    ctaPreset: (['collect-now', 'book-now', 'enroll-now', 'request-quote', 'message-first'].includes(asText(body.ctaPreset)) ? asText(body.ctaPreset) : undefined) as ProfileOffering['ctaPreset'],
+    merchandisingRank: Number.isFinite(Number(body.merchandisingRank)) ? Number(body.merchandisingRank) : 0,
+    galleryOrder: Array.isArray(body.galleryOrder) ? (body.galleryOrder as string[]) : [],
+    launchWindowStartsAt: asText(body.launchWindowStartsAt),
+    launchWindowEndsAt: asText(body.launchWindowEndsAt),
+    availabilityLabel: asText(body.availabilityLabel),
+    availabilityTone: (['default', 'success', 'warning', 'danger'].includes(asText(body.availabilityTone)) ? asText(body.availabilityTone) : 'default') as 'default' | 'success' | 'warning' | 'danger',
+    featured: Boolean(body.featured)
+  });
+
+  return NextResponse.json({ data: { ok: true, profile } });
+}

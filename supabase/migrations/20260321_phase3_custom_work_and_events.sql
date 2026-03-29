@@ -1,0 +1,63 @@
+create table if not exists public.custom_work_requests (
+  id text primary key,
+  channel text not null,
+  buyer_name text not null,
+  buyer_email text not null,
+  requested_for text not null default '',
+  title text not null,
+  description text not null,
+  budget numeric not null default 0,
+  currency text not null default 'USD',
+  deadline date null,
+  reference_url text not null default '',
+  special_instructions text not null default '',
+  status text not null default 'submitted',
+  facilitation_fee numeric not null default 0,
+  creator_net_estimate numeric not null default 0,
+  matched_creators jsonb not null default '[]'::jsonb,
+  assigned_creator text not null default '',
+  milestones jsonb not null default '[]'::jsonb,
+  cancellation_reason text not null default '',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.community_events (
+  id text primary key,
+  title text not null,
+  description text not null,
+  host_name text not null,
+  host_avatar text not null default '',
+  created_by_actor_id text not null default '',
+  event_type text not null,
+  event_mode text not null,
+  location text not null default '',
+  starts_at timestamptz not null,
+  ends_at timestamptz null,
+  base_price numeric not null default 0,
+  currency text not null default 'USD',
+  capacity integer null,
+  livestream_enabled boolean not null default false,
+  vip_addon_price numeric not null default 0,
+  image text not null default '',
+  sponsor text not null default '',
+  featured boolean not null default false,
+  status text not null default 'draft',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.community_event_registrations (
+  id text primary key,
+  event_id text not null references public.community_events(id) on delete cascade,
+  attendee_name text not null,
+  attendee_email text not null,
+  tier text not null default 'general',
+  quantity integer not null default 1,
+  subtotal numeric not null default 0,
+  platform_fee numeric not null default 0,
+  host_payout numeric not null default 0,
+  currency text not null default 'USD',
+  status text not null default 'registered',
+  created_at timestamptz not null default timezone('utc', now())
+);

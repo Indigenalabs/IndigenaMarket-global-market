@@ -1,0 +1,29 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title>Scholarship Circle</title>
+  <desc>LANGUAGE + EDUCATION</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#233017"/>
+      <stop offset="100%" stop-color="#090b08"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.2" r="0.9">
+      <stop offset="0%" stop-color="#dbe85f" stop-opacity="0.78"/>
+      <stop offset="100%" stop-color="#dbe85f" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="40"/></filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <circle cx="280" cy="180" r="260" fill="url(#glow)" filter="url(#blur)"/>
+  <circle cx="1340" cy="760" r="300" fill="#dbe85f" opacity="0.18" filter="url(#blur)"/>
+  <path d="M0 760C180 670 330 610 510 602C742 592 862 720 1094 708C1274 699 1428 634 1600 530V900H0Z" fill="#0a0908" opacity="0.74"/>
+  <rect x="88" y="88" width="520" height="520" rx="36" fill="#ffffff" opacity="0.08"/>
+  <rect x="120" y="120" width="456" height="456" rx="24" fill="#000000" opacity="0.22"/>
+  <circle cx="348" cy="298" r="118" fill="#dbe85f" opacity="0.62"/>
+  <rect x="254" y="424" width="188" height="24" rx="12" fill="#fff" opacity="0.86"/>
+  <rect x="228" y="474" width="240" height="18" rx="9" fill="#fff" opacity="0.56"/>
+  <rect x="930" y="148" width="370" height="18" rx="9" fill="#fff" opacity="0.18"/>
+  <rect x="930" y="190" width="440" height="22" rx="11" fill="#fff" opacity="0.1"/>
+  <rect x="930" y="242" width="300" height="18" rx="9" fill="#fff" opacity="0.14"/>
+  <text x="930" y="602" font-family="Georgia, 'Times New Roman', serif" font-size="82" fill="white">Scholarship Circle</text>
+  <text x="930" y="664" font-family="Arial, sans-serif" font-size="28" letter-spacing="6" fill="#f5e8c8" opacity="0.92">LANGUAGE + EDUCATION</text>
+</svg>

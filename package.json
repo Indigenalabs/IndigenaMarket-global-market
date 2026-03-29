@@ -1,0 +1,43 @@
+{
+  "name": "global-market",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:audit": "node scripts/run_audits.js",
+    "test:release-gate": "node scripts/release_gate.js",
+    "test:audit:full": "node scripts/full_app_audit.js",
+    "test:audit:commerce": "node scripts/commerce_cta_audit.js",
+    "test:audit:modals": "node scripts/modal_flows_audit.js",
+    "test:smoke": "playwright test --config=playwright.smoke.config.ts tests/e2e/pillars-smoke.spec.ts --workers=1",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.99.1",
+    "axios": "^1.13.6",
+    "ethers": "^6.16.0",
+    "lucide-react": "^0.575.0",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^3.7.0",
+    "stripe": "^20.4.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

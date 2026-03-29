@@ -1,0 +1,114 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createPlatformAccountApi } from '@/app/lib/platformAccountsApi';
+
+export default function CommunityAccountCreateClient() {
+  const router = useRouter();
+  const [form, setForm] = useState({
+    displayName: '',
+    slug: '',
+    accountType: 'community',
+    nation: '',
+    location: '',
+    storefrontHeadline: '',
+    description: '',
+    story: '',
+    payoutWallet: '',
+    authorityProof: '',
+    communityReferences: ''
+  });
+  const [feedback, setFeedback] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setFeedback('');
+    try {
+      const result = await createPlatformAccountApi({
+        slug: form.slug,
+        displayName: form.displayName,
+        description: form.description,
+        accountType: form.accountType as any,
+        nation: form.nation,
+        location: form.location,
+        storefrontHeadline: form.storefrontHeadline,
+        story: form.story,
+        payoutWallet: form.payoutWallet,
+        authorityProof: form.authorityProof,
+        communityReferences: form.communityReferences.split('\n').map((entry) => entry.trim()).filter(Boolean)
+      });
+      router.push(`/communities/${result.account.slug}`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to create community page.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-5 rounded-[28px] border border-white/10 bg-[#111111] p-6 text-white">
+      <div className="grid gap-5 md:grid-cols-2">
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Community name</span>
+          <input value={form.displayName} onChange={(e) => setForm((state) => ({ ...state, displayName: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" required />
+        </label>
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Slug</span>
+          <input value={form.slug} onChange={(e) => setForm((state) => ({ ...state, slug: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" placeholder="riverstone-arts-council" required />
+        </label>
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Account type</span>
+          <select value={form.accountType} onChange={(e) => setForm((state) => ({ ...state, accountType: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none">
+            <option value="community">Community</option>
+            <option value="tribe">Tribe</option>
+            <option value="collective">Collective</option>
+          </select>
+        </label>
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Nation</span>
+          <input value={form.nation} onChange={(e) => setForm((state) => ({ ...state, nation: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
+        </label>
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Location</span>
+          <input value={form.location} onChange={(e) => setForm((state) => ({ ...state, location: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
+        </label>
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Treasury wallet</span>
+          <input value={form.payoutWallet} onChange={(e) => setForm((state) => ({ ...state, payoutWallet: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" placeholder="xrpl:rCommunityTreasury" />
+        </label>
+      </div>
+
+      <label className="block space-y-2 text-sm">
+        <span className="text-gray-300">Storefront headline</span>
+        <input value={form.storefrontHeadline} onChange={(e) => setForm((state) => ({ ...state, storefrontHeadline: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
+      </label>
+      <label className="block space-y-2 text-sm">
+        <span className="text-gray-300">Description</span>
+        <textarea value={form.description} onChange={(e) => setForm((state) => ({ ...state, description: e.target.value }))} className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" required />
+      </label>
+      <label className="block space-y-2 text-sm">
+        <span className="text-gray-300">Community story</span>
+        <textarea value={form.story} onChange={(e) => setForm((state) => ({ ...state, story: e.target.value }))} className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
+      </label>
+      <label className="block space-y-2 text-sm">
+        <span className="text-gray-300">Authority proof summary</span>
+        <textarea value={form.authorityProof} onChange={(e) => setForm((state) => ({ ...state, authorityProof: e.target.value }))} className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
+      </label>
+      <label className="block space-y-2 text-sm">
+        <span className="text-gray-300">Community references</span>
+        <textarea value={form.communityReferences} onChange={(e) => setForm((state) => ({ ...state, communityReferences: e.target.value }))} className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" placeholder="One reference per line" />
+      </label>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={submitting} className="rounded-full bg-[#d4af37] px-5 py-3 text-sm font-semibold text-black disabled:opacity-60">
+          {submitting ? 'Creating page...' : 'Create community page'}
+        </button>
+        <p className="text-sm text-gray-400">Submitting creates the page and opens a pending verification record for governance review.</p>
+      </div>
+      {feedback ? <p className="text-sm text-[#f3deb1]">{feedback}</p> : null}
+    </form>
+  );
+}
