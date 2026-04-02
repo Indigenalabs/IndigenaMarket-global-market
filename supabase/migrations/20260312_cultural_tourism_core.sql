@@ -1,4 +1,4 @@
-﻿-- Pillar 6 Cultural Tourism core transactional tables
+-- Pillar 6 Cultural Tourism core transactional tables
 
 create table if not exists public.tourism_bookings (
   booking_id text primary key,

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { getCreatorProfileBySlug, updateCreatorProfileShippingSettings, type CreatorShippingSettings } from '@/app/profile/data/profileShowcase';
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   const nextSettings = normalizeShippingSettings(body.shippingSettings, fallbackProfile.shippingSettings);
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to update shipping settings.',
+    guestMessage: 'Sign in to update shipping settings.',
     forbiddenMessage: 'You can only update your own shipping settings.',
     select: 'owner_actor_id'
   });
@@ -63,3 +63,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ data: { ok: true, shippingSettings: updateCreatorProfileShippingSettings(slug, nextSettings).shippingSettings } });
 }
+
+
+

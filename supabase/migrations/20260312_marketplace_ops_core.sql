@@ -1,4 +1,4 @@
-﻿-- Remaining marketplace ops tables for internal /api routes
+-- Remaining marketplace ops tables for internal /api routes
 
 create table if not exists public.physical_item_reports (
   id text primary key,

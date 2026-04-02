@@ -53,6 +53,7 @@ alter table public.adv_case_workflows enable row level security;
 alter table public.adv_campaign_reviews enable row level security;
 alter table public.adv_legal_clinic_slots enable row level security;
 
-create policy if not exists "public_read_adv_clinic_slots"
+drop policy if exists "public_read_adv_clinic_slots" on public.adv_legal_clinic_slots;
+create policy "public_read_adv_clinic_slots"
   on public.adv_legal_clinic_slots for select
   using ((status = 'active' or status = 'published') and booking_status = 'open');

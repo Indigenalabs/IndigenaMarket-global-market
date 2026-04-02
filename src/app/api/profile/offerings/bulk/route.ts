@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { requireCreatorProfileOwner, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
 import {
   updateCreatorProfileOfferingsBulk,
   updateCreatorProfilePresentation
@@ -54,6 +54,18 @@ function resolveNextState(operation: BulkOperation) {
   }
 }
 
+function operationRequiresVerifiedSeller(operation: BulkOperation) {
+  return [
+    'activate',
+    'feature',
+    'set-available',
+    'set-limited',
+    'set-waitlist',
+    'set-bookable',
+    'set-enrolling'
+  ].includes(operation);
+}
+
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) {
@@ -84,11 +96,18 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to manage listings.',
+    guestMessage: 'Sign in to manage listings.',
     forbiddenMessage: 'You can only manage your own listings.',
     select: 'owner_actor_id, presentation_settings'
   });
   if ('error' in owner) return owner.error;
+
+  if (operationRequiresVerifiedSeller(operation)) {
+    const sellerGate = await requireVerifiedSellerForActor(owner.actorId, {
+      forbiddenMessage: 'Verification approval is required before you can publish or feature listings.'
+    });
+    if ('error' in sellerGate) return sellerGate.error;
+  }
 
   const nextState = resolveNextState(operation);
   let nextFeaturedIds = [...(owner.fallbackProfile.presentation.featuredOfferingIds ?? [])];
@@ -153,3 +172,6 @@ export async function POST(req: NextRequest) {
     }
   });
 }
+
+
+

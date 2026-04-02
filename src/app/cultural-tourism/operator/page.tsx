@@ -20,6 +20,7 @@ import {
   type ExperienceSession
 } from '@/app/lib/culturalTourismApi';
 import { requireWalletAction } from '@/app/lib/requireWalletAction';
+import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import CulturalTourismFrame from '../components/CulturalTourismFrame';
@@ -62,7 +63,8 @@ function CulturalTourismOperatorPageContent() {
   const returnTo = searchParams.get('returnTo') || '/creator-hub';
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
-  const profileSlug = searchParams.get('slug') || 'aiyana-redbird';
+  const requestedProfileSlug = searchParams.get('slug') || '';
+  const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [wallet, setWallet] = useState('demo-operator-wallet');
   const [walletInput, setWalletInput] = useState('demo-operator-wallet');
@@ -97,7 +99,23 @@ function CulturalTourismOperatorPageContent() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!editOfferingId) return;
+    if (requestedProfileSlug) {
+      setProfileSlug(requestedProfileSlug);
+      return;
+    }
+    resolveCurrentCreatorProfileSlug()
+      .then((slug) => {
+        if (!cancelled && slug) setProfileSlug(slug);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedProfileSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!editOfferingId || !profileSlug) return;
     fetchPublicProfile(profileSlug)
       .then((data) => {
         if (cancelled) return;
@@ -192,7 +210,7 @@ function CulturalTourismOperatorPageContent() {
       try {
         next = (await requireWalletAction('open the operator dashboard')).wallet;
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : 'Connect your wallet to open the operator dashboard.');
+        setMessage(error instanceof Error ? error.message : 'Sign in to open the operator dashboard.');
         return;
       }
     }
@@ -216,6 +234,9 @@ function CulturalTourismOperatorPageContent() {
     }
     setSubmitting(true);
     try {
+      const activeProfileSlug = profileSlug || (await resolveCurrentCreatorProfileSlug());
+      if (!activeProfileSlug) throw new Error('Sign in to continue.');
+      if (!profileSlug) setProfileSlug(activeProfileSlug);
       await upsertTourismExperienceListing({
         title,
         kind,
@@ -232,9 +253,9 @@ function CulturalTourismOperatorPageContent() {
         virtual,
         sacredContent
       });
-      if (editOfferingId) {
-        await updateProfileOffering({
-          slug: profileSlug,
+        if (editOfferingId) {
+          await updateProfileOffering({
+          slug: activeProfileSlug,
           offeringId: editOfferingId,
           title: title.trim(),
           blurb: summary.trim(),
@@ -699,3 +720,6 @@ function parseNumericPrice(label: string) {
   const match = label.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
   return match ? match[1] : '';
 }
+
+
+

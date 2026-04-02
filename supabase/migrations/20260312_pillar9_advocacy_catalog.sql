@@ -90,18 +90,22 @@ alter table public.advocacy_campaigns enable row level security;
 alter table public.advocacy_resources enable row level security;
 alter table public.advocacy_victories enable row level security;
 
-create policy if not exists "public_read_advocacy_attorneys"
+drop policy if exists "public_read_advocacy_attorneys" on public.advocacy_attorneys;
+create policy "public_read_advocacy_attorneys"
   on public.advocacy_attorneys for select
   using (status = 'published' or status = 'active');
 
-create policy if not exists "public_read_advocacy_campaigns"
+drop policy if exists "public_read_advocacy_campaigns" on public.advocacy_campaigns;
+create policy "public_read_advocacy_campaigns"
   on public.advocacy_campaigns for select
   using (status = 'published' or status = 'active');
 
-create policy if not exists "public_read_advocacy_resources"
+drop policy if exists "public_read_advocacy_resources" on public.advocacy_resources;
+create policy "public_read_advocacy_resources"
   on public.advocacy_resources for select
   using (status = 'published' or status = 'active');
 
-create policy if not exists "public_read_advocacy_victories"
+drop policy if exists "public_read_advocacy_victories" on public.advocacy_victories;
+create policy "public_read_advocacy_victories"
   on public.advocacy_victories for select
   using (status = 'published' or status = 'active');

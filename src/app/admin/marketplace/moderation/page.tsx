@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -92,7 +92,7 @@ export default function MarketplaceModerationPage() {
       try {
         wallet = (await requireWalletAction('access the marketplace moderation console')).wallet;
       } catch (error) {
-        setError(error instanceof Error ? error.message : 'Connect your wallet to access the moderation console.');
+        setError(error instanceof Error ? error.message : 'Sign in to access the moderation console.');
         return;
       }
     }
@@ -235,3 +235,6 @@ export default function MarketplaceModerationPage() {
     </div>
   );
 }
+
+
+

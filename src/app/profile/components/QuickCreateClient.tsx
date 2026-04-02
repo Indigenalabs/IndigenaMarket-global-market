@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ArrowLeft, Briefcase, Languages, Scale, Sprout, Wrench } from 'lucide-react';
 import { requireWalletAction } from '@/app/lib/requireWalletAction';
+import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import { createQuickProfileDraft } from '@/app/lib/profileApi';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
@@ -273,8 +274,12 @@ export default function QuickCreateClient({
               try {
                 setCreating(true);
                 await requireWalletAction(`create a ${config.label.toLowerCase()} draft`);
+                const profileSlug = await resolveCurrentCreatorProfileSlug();
+                if (!profileSlug) {
+                  throw new Error('Sign in to continue.');
+                }
                 const result = await createQuickProfileDraft({
-                  slug: 'aiyana-redbird',
+                  slug: profileSlug,
                   pillar: pillar as keyof typeof PILLAR_CONFIG,
                   fields: values
                 });

@@ -1,20 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
 import { listVerificationPurchaseEvents, listVerificationPurchases, updateVerificationPurchaseStatus } from '@/app/lib/verificationPurchases';
 import { listElderSignatureRequestEvents, listElderSignatureRequests, updateElderSignatureRequest } from '@/app/lib/elderSignatureRequests';
+import { listVerificationApplications, listVerificationStatusHistory, updateVerificationApplicationStatus } from '@/app/lib/indigenousVerification';
 
 export async function GET(req: NextRequest) {
   const auth = await requirePlatformAdmin(req);
   if (auth.error) return auth.error;
-  const [purchases, elderRequests] = await Promise.all([
+  const [applications, purchases, elderRequests] = await Promise.all([
+    listVerificationApplications(200),
     listVerificationPurchases(200),
     listElderSignatureRequests(200)
   ]);
-  const [purchaseEvents, elderRequestEvents] = await Promise.all([
+  const [statusHistory, purchaseEvents, elderRequestEvents] = await Promise.all([
+    listVerificationStatusHistory(300),
     listVerificationPurchaseEvents(300),
     listElderSignatureRequestEvents(300)
   ]);
-  return NextResponse.json({ purchases, elderRequests, purchaseEvents, elderRequestEvents });
+  return NextResponse.json({ applications, statusHistory, purchases, elderRequests, purchaseEvents, elderRequestEvents });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -54,5 +57,35 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ elderRequest });
   }
 
-  return NextResponse.json({ message: 'entity must be purchase or elder-request' }, { status: 400 });
+  if (entity === 'application') {
+    const status = String(body.status || '').trim() as
+      | 'draft'
+      | 'pending_review'
+      | 'provisional_verified'
+      | 'verified_indigenous_seller'
+      | 'verified_community'
+      | 'verified_elder_authority'
+      | 'restricted';
+    if (![
+      'draft',
+      'pending_review',
+      'provisional_verified',
+      'verified_indigenous_seller',
+      'verified_community',
+      'verified_elder_authority',
+      'restricted'
+    ].includes(status)) {
+      return NextResponse.json({ message: 'Invalid verification application status' }, { status: 400 });
+    }
+    const application = await updateVerificationApplicationStatus({
+      id,
+      status,
+      reviewerActorId: auth.identity?.actorId || 'platform-admin',
+      decisionNotes: String(body.decisionNotes || '').trim() || `Admin changed verification status to ${status}`
+    });
+    return NextResponse.json({ application });
+  }
+
+  return NextResponse.json({ message: 'entity must be application, purchase, or elder-request' }, { status: 400 });
 }
+

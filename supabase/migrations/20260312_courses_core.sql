@@ -1,4 +1,4 @@
-﻿-- Courses pillar transactional tables
+-- Courses pillar transactional tables
 
 create table if not exists public.course_enrollments (
   id text primary key,

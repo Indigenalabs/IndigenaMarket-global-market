@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -64,7 +64,7 @@ export default function OrdersClient() {
               onClick={() => void requireWalletAction('view your materials order history').then(() => load())}
               className="rounded-full bg-[#d4af37] px-4 py-2 text-sm font-semibold text-black hover:bg-[#f0c96f]"
             >
-              Connect wallet
+              Sign In
             </button>
             <button
               type="button"
@@ -108,7 +108,7 @@ export default function OrdersClient() {
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <p className="text-base font-semibold text-white">{item.productTitle}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#c5b7a6]">{item.supplierName} • {item.shippingRegion}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#c5b7a6]">{item.supplierName} â€¢ {item.shippingRegion}</p>
                       <p className="mt-3 text-sm leading-7 text-[#d5cab8]">{item.notes}</p>
                     </div>
                     <div className="grid gap-2 text-sm text-[#d5cab8] md:min-w-[260px]">
@@ -170,7 +170,7 @@ export default function OrdersClient() {
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <p className="text-base font-semibold text-white">{booking.rentalTitle}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#c5b7a6]">{booking.hubName} • {booking.bookingDate}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#c5b7a6]">{booking.hubName} â€¢ {booking.bookingDate}</p>
                       <p className="mt-3 text-sm leading-7 text-[#d7f0f2]">{booking.returnProtocol}</p>
                     </div>
                     <div className="grid gap-2 text-sm text-[#d7f0f2] md:min-w-[240px]">
@@ -189,3 +189,6 @@ export default function OrdersClient() {
     </div>
   );
 }
+
+
+

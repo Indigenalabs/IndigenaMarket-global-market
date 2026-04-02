@@ -1,4 +1,4 @@
-﻿-- Indigena Global Market: app-wide Supabase baseline for pillars 1-10
+-- Indigena Global Market: app-wide Supabase baseline for pillars 1-10
 -- This schema is intentionally normalized-light for rapid feature delivery.
 
 create extension if not exists pgcrypto;

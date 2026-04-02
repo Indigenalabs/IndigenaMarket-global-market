@@ -13,6 +13,7 @@ import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/app/components/Sidebar';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
+import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import { assertLegacyListingPublishAllowed, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
 
@@ -1032,7 +1033,8 @@ function AddPhysicalItemListingContent() {
   const returnTo = searchParams.get('returnTo') || '/creator-hub';
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
-  const profileSlug = searchParams.get('slug') || 'aiyana-redbird';
+  const requestedProfileSlug = searchParams.get('slug') || '';
+  const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [step, setStep] = useState(1);
@@ -1045,7 +1047,23 @@ function AddPhysicalItemListingContent() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!editOfferingId) return;
+    if (requestedProfileSlug) {
+      setProfileSlug(requestedProfileSlug);
+      return;
+    }
+    resolveCurrentCreatorProfileSlug()
+      .then((slug) => {
+        if (!cancelled && slug) setProfileSlug(slug);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedProfileSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!editOfferingId || !profileSlug) return;
     fetchPublicProfile(profileSlug)
       .then((data) => {
         if (cancelled) return;
@@ -1087,7 +1105,10 @@ function AddPhysicalItemListingContent() {
   const handlePublish = async () => {
     setSubmitting(true);
     try {
-      await assertLegacyListingPublishAllowed(profileSlug, Boolean(editOfferingId));
+      const activeProfileSlug = profileSlug || (await resolveCurrentCreatorProfileSlug());
+      if (!activeProfileSlug) throw new Error('Sign in to continue.');
+      if (!profileSlug) setProfileSlug(activeProfileSlug);
+      await assertLegacyListingPublishAllowed(activeProfileSlug, Boolean(editOfferingId));
       await new Promise(r => setTimeout(r, 1800));
       if (editOfferingId) {
         const coverImage = form.imageUrls[0] || form.imageInput || mirrorOffering?.coverImage || '';
@@ -1107,7 +1128,7 @@ function AddPhysicalItemListingContent() {
             : 'buy';
 
         await updateProfileOffering({
-          slug: profileSlug,
+          slug: activeProfileSlug,
           offeringId: editOfferingId,
           title: form.title.trim(),
           blurb: form.description.trim(),

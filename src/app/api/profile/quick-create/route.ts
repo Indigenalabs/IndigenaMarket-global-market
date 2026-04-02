@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
-import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
+import { requireCreatorProfileOwner, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
 import { canCreateListing } from '@/app/lib/creatorEntitlements';
 import { getActorEntitlements } from '@/app/lib/subscriptionState';
+import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
+import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 import {
   appendCreatorProfileOffering,
   getCreatorProfileBySlug,
@@ -67,7 +69,7 @@ function profileOfferingForDraft(
 
 async function insertDraft(body: Body, actorId: string) {
   const supabase = createSupabaseServerClient();
-  const slug = body.slug || 'aiyana-redbird';
+  const slug = body.slug || (await findCreatorProfileSlugForActor(actorId)) || actorId;
   const title =
     body.fields['Service title'] ||
     body.fields['Resource title'] ||
@@ -224,16 +226,23 @@ async function insertDraft(body: Body, actorId: string) {
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Body | null;
   if (!body || !body.pillar || !body.fields) return bad('Invalid quick-create payload');
-  const slug = body.slug || 'aiyana-redbird';
+  const actorId = resolveRequestActorId(req);
+  const resolvedSlug = (body.slug || '').trim() || (await findCreatorProfileSlugForActor(actorId).catch(() => null)) || '';
+  const slug = resolvedSlug;
+  if (!slug) return bad('Sign in to create a draft for your creator profile.', 401);
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Wallet authentication required',
+    guestMessage: 'Sign in to create drafts for your creator profile.',
     forbiddenMessage: 'You can only create drafts for your own profile.',
     select: 'owner_actor_id'
   });
   if ('error' in owner) return owner.error;
 
-  const actorId = owner.actorId;
-  const entitlements = await getActorEntitlements(actorId, '');
+  const sellerGate = await requireVerifiedSellerForActor(owner.actorId, {
+    forbiddenMessage: 'Verification approval is required before you can create live seller drafts.'
+  });
+  if ('error' in sellerGate) return sellerGate.error;
+
+  const entitlements = await getActorEntitlements(owner.actorId, '');
   const existingProfile = getCreatorProfileBySlug(slug);
   if (!canCreateListing(existingProfile.offerings.length, entitlements.creatorPlanId)) {
     return bad('Creator Free supports up to 12 active listings. Upgrade to Creator or Studio for unlimited listings.', 403);
@@ -268,7 +277,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ data: { ok: true, draftId: id, href, offering } }, { status: 201 });
   }
 
-  const result = await insertDraft(body, actorId);
+  const result = await insertDraft({ ...body, slug }, owner.actorId);
   const supabase = createSupabaseServerClient();
   await supabase.from('creator_profile_offerings').insert({
     id: result.id,

@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 
 export async function POST(req: NextRequest) {
   const actorId = resolveRequestActorId(req);
   if (!actorId || actorId === 'guest') {
-    return NextResponse.json({ message: 'Wallet sign-in required to follow creators.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in required to follow creators.' }, { status: 401 });
   }
 
   const body = (await req.json().catch(() => ({}))) as { profileSlug?: string; action?: 'follow' | 'unfollow' };
@@ -57,3 +57,6 @@ export async function POST(req: NextRequest) {
     }
   });
 }
+
+
+

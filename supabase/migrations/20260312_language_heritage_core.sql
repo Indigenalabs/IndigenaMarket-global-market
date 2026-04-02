@@ -1,4 +1,4 @@
-﻿-- Language & Heritage pillar transactional tables
+-- Language & Heritage pillar transactional tables
 
 create table if not exists public.language_heritage_access_requests (
   request_id text primary key,

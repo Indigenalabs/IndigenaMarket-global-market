@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
+import { getSellerPermissionsForActor } from '@/app/lib/indigenousVerification';
 import { getCreatorProfileBySlug } from '@/app/profile/data/profileShowcase';
 
 function asText(value: unknown, fallback = '') {
@@ -20,7 +21,7 @@ export async function requireCreatorProfileOwner(
   if (actorId === 'guest') {
     return {
       error: NextResponse.json(
-        { message: options?.guestMessage || 'Connect your wallet to manage this creator profile.' },
+        { message: options?.guestMessage || 'Sign in to manage this creator profile.' },
         { status: 401 }
       )
     };
@@ -30,14 +31,6 @@ export async function requireCreatorProfileOwner(
   const fallbackOwnerActorId = fallbackProfile.slug;
 
   if (!isSupabaseServerConfigured()) {
-    if (actorId !== fallbackOwnerActorId) {
-      return {
-        error: NextResponse.json(
-          { message: options?.forbiddenMessage || 'You can only manage your own creator profile.' },
-          { status: 403 }
-        )
-      };
-    }
     return {
       actorId,
       fallbackProfile,
@@ -76,6 +69,29 @@ export async function requireCreatorProfileOwner(
     fallbackProfile,
     fallbackOwnerActorId,
     supabase,
-      profileRow: profileRecord
+    profileRow: profileRecord
+  };
+}
+
+export async function requireVerifiedSellerForActor(
+  actorId: string,
+  options?: {
+    forbiddenMessage?: string;
+  }
+) {
+  const permissions = await getSellerPermissionsForActor({ actorId });
+  if (!permissions.canSell) {
+    return {
+      error: NextResponse.json(
+        {
+          message:
+            options?.forbiddenMessage ||
+            'Verification approval is required before you can publish or sell through this creator profile.'
+        },
+        { status: 403 }
+      )
     };
   }
+
+  return { permissions };
+}

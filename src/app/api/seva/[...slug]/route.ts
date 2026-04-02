@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestIdentity';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
@@ -197,7 +197,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     const actorId = resolveRequestActorId(req);
     const wallet = resolveRequestWallet(req);
     if ((!actorId || actorId === 'guest') && !wallet) {
-      return fail('Authenticated wallet required', 401);
+      return fail('Authenticated account session required', 401);
     }
     try {
       const requests = await listRequestsForRequester(actorId, wallet);
@@ -231,7 +231,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     const amount = Number(body.amount || 0);
     const walletAddress = normalizeWallet(body.walletAddress || resolveRequestWallet(req));
     if (!causeId || amount <= 0) return fail('causeId and positive amount are required');
-    if (!walletAddress) return fail('Authenticated wallet required', 401);
+    if (!walletAddress) return fail('Authenticated account session required', 401);
     if (isSupabaseServerConfigured()) {
       const supabase = createSupabaseServerClient();
       await supabase.from('seva_donations').insert({
@@ -263,7 +263,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     }
     const requesterWallet = normalizeWallet(body.walletAddress || resolveRequestWallet(req));
     if (!requesterWallet) {
-      return fail('Authenticated wallet required', 401);
+      return fail('Authenticated account session required', 401);
     }
 
     const requestId = `svr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -374,3 +374,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 
   return fail('Unsupported seva endpoint', 404);
 }
+
+
+

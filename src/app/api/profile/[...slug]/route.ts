@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
+import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 import {
   getCreatorProfileBySlug,
@@ -36,6 +37,7 @@ import { listFinanceCases } from '@/app/lib/financeCases';
 import { getActorEntitlements, listActorSubscriptions } from '@/app/lib/subscriptionState';
 import { summarizeSubscriptionMetrics } from '@/app/lib/subscriptionMetrics';
 import { getCreatorPlanCapabilities } from '@/app/lib/creatorEntitlements';
+import { buildCreatorProfileFallback } from '@/app/profile/lib/profileServer';
 
 type DbRow = Record<string, unknown>;
 
@@ -760,7 +762,7 @@ async function fetchSupabaseProfile(slug: string, actorId: string): Promise<{ pr
     supabase.from('creator_profile_analytics_events').select('*').eq('profile_slug', slug).order('created_at', { ascending: false }).limit(1000)
   ]);
 
-  const fallbackProfile = getCreatorProfileBySlug(slug);
+  const fallbackProfile = buildCreatorProfileFallback(slug);
   const analyticsEvents = (analyticsEventsRes.data ?? []) as DbRow[];
   const supportRequests =
     (supportRequestsRes.data ?? []).length > 0
@@ -898,7 +900,7 @@ async function fetchSupabaseProfile(slug: string, actorId: string): Promise<{ pr
 }
 
 function getFallbackPublicProfile(slug: string, actorId: string) {
-  const profile = getCreatorProfileBySlug(slug);
+  const profile = buildCreatorProfileFallback(slug);
   const isFollowing = actorId !== 'guest' && actorId !== profile.slug;
   return { profile, isFollowing };
 }
@@ -926,7 +928,8 @@ export async function GET(req: NextRequest, context: { params: Promise<{ slug: s
 
   if (section === 'dashboard') {
     const url = new URL(req.url);
-    const requestedSlug = url.searchParams.get('slug') || 'aiyana-redbird';
+    const explicitSlug = (url.searchParams.get('slug') || '').trim();
+    const requestedSlug = explicitSlug || (await findCreatorProfileSlugForActor(actorId).catch(() => null)) || 'aiyana-redbird';
     const live = await fetchSupabaseProfile(requestedSlug, actorId);
     const payload = live ?? getFallbackPublicProfile(requestedSlug, actorId);
     const messageThreads = live ? await fetchSupabaseThreads(requestedSlug, actorId) : getProfileMessageThreadsBySlug(requestedSlug);

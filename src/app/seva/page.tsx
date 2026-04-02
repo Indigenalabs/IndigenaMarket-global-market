@@ -537,7 +537,7 @@ export default function SevaPage() {
                   disabled={isSubmittingRequest}
                   className="rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f4e4a6] px-5 py-3 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-[#d4af37]/20 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSubmittingRequest ? 'Opening Wallet...' : 'Submit for Platform Review'}
+                  {isSubmittingRequest ? 'Opening secure checkout...' : 'Submit for Platform Review'}
                 </button>
               </div>
             </div>
@@ -680,7 +680,7 @@ export default function SevaPage() {
                           disabled={donatingId === project.id}
                           className="px-4 py-2 bg-gradient-to-r from-[#DC143C] to-[#8B0000] text-white text-sm font-medium rounded-lg hover:shadow-lg hover:shadow-[#DC143C]/30 transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {donatingId === project.id ? 'Opening Wallet...' : 'Donate Now'}
+                          {donatingId === project.id ? 'Opening secure checkout...' : 'Donate Now'}
                         </button>
                       </div>
                     </div>
@@ -801,7 +801,7 @@ export default function SevaPage() {
               disabled={donatingId === (filteredProjects[0]?.id || 'seva-community-fund')}
               className="px-8 py-4 bg-gradient-to-r from-[#DC143C] to-[#8B0000] text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-[#DC143C]/30 transition-all disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {donatingId === (filteredProjects[0]?.id || 'seva-community-fund') ? 'Opening Wallet...' : 'Start Giving Today'}
+              {donatingId === (filteredProjects[0]?.id || 'seva-community-fund') ? 'Opening secure checkout...' : 'Start Giving Today'}
             </button>
           </div>
         </section>
@@ -809,6 +809,9 @@ export default function SevaPage() {
     </div>
   );
 }
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-﻿create table if not exists public.materials_tools_suppliers (
+create table if not exists public.materials_tools_suppliers (
   id text primary key,
   name text not null,
   nation text,

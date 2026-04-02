@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
+import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
+import { getSellerPermissionsForActor } from '@/app/lib/indigenousVerification';
 import { MARKETING_ACTIVE_CAMPAIGNS, type MarketingCampaignRun } from '@/app/profile/data/marketingInventory';
 import { getCreatorProfileBySlug } from '@/app/profile/data/profileShowcase';
 import {
@@ -178,12 +180,18 @@ async function syncMirroredPlacement(
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const slug = url.searchParams.get('slug') || 'aiyana-redbird';
+  const actorId = resolveRequestActorId(req);
+  const explicitSlug = (url.searchParams.get('slug') || '').trim();
+  const slug = explicitSlug || (await findCreatorProfileSlugForActor(actorId).catch(() => null)) || '';
   const mode = url.searchParams.get('mode') || 'profile';
 
   if (mode === 'review') {
     const gate = await requirePlatformAdmin(req, ['admin', 'platform_ops', 'partnerships_admin']);
     if (gate.error) return gate.error;
+  }
+
+  if (!slug && mode !== 'review') {
+    return NextResponse.json({ data: { campaigns: [] } });
   }
 
   if (!isSupabaseServerConfigured()) {
@@ -227,12 +235,19 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to reserve a placement.',
+    guestMessage: 'Sign in to reserve a placement.',
     forbiddenMessage: 'You can only reserve placements for your own creator profile.',
     select: 'owner_actor_id'
   });
   if ('error' in owner) return owner.error;
   const actorId = owner.actorId;
+  const permissions = await getSellerPermissionsForActor({ actorId });
+  if (!permissions.canLaunchVerifiedCampaigns) {
+    return NextResponse.json(
+      { message: 'Verification approval is required before you can launch a verified campaign.' },
+      { status: 403 }
+    );
+  }
   const profile = owner.fallbackProfile;
 
   const offering = profile.offerings.find((entry) => entry.id === offeringId);
@@ -250,7 +265,7 @@ export async function POST(req: NextRequest) {
   });
   const campaignRecord = {
     profile_slug: slug,
-    owner_actor_id: profile.slug,
+    owner_actor_id: actorId,
     offering_id: offering.id,
     offer_title: offering.title,
     scope: placement.scope,
@@ -322,7 +337,7 @@ export async function PATCH(req: NextRequest) {
   const actorId = resolveRequestActorId(req);
   const adminSigned = isAdminSigned(req);
   if (actorId === 'guest' && !adminSigned) {
-    return NextResponse.json({ message: 'Connect your wallet to update campaigns.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in to update campaigns.' }, { status: 401 });
   }
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -489,3 +504,6 @@ export async function PATCH(req: NextRequest) {
     }
   });
 }
+
+
+

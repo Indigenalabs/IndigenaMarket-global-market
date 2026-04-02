@@ -1,5 +1,13 @@
-import { fetchWithTimeout, parseApiError } from './apiClient';
+﻿import { fetchWithTimeout, parseApiError } from './apiClient';
 import { clearLegacyWalletStorage, setStoredWalletAddress } from './walletStorage';
+import {
+  clearAccountSessionStorage,
+  ensureAccountSessionAuth,
+  fetchAccountSessionMe,
+  getSupabaseBrowserSession,
+  logoutAccountSessionClient,
+  syncAccountSessionFromSupabase
+} from './accountAuthClient';
 
 export interface WalletAuthChallenge {
   challengeId: string;
@@ -18,6 +26,20 @@ export interface WalletAuthSession {
   refreshToken: string;
   sessionId: string;
   expiresIn: number;
+}
+
+export interface UnifiedSessionMe {
+  actorId: string;
+  walletAddress: string;
+  role: string;
+  userUid?: string;
+  sessionId?: string;
+  method: 'wallet' | 'email';
+  verified: true;
+  email?: string;
+  displayName?: string;
+  walletProvider?: string;
+  walletType?: string;
 }
 
 function browserSafe() {
@@ -58,6 +80,7 @@ function storeSession(data: WalletAuthSession) {
 
 export function clearWalletSessionStorage() {
   if (!browserSafe()) return;
+  clearAccountSessionStorage();
   window.localStorage.removeItem('indigena_user_jwt');
   window.localStorage.removeItem('indigena_user_refresh_token');
   window.localStorage.removeItem('indigena_user_id');
@@ -65,7 +88,24 @@ export function clearWalletSessionStorage() {
   emitWalletSessionChanged();
 }
 
-export async function fetchWalletSessionMe() {
+export async function fetchWalletSessionMe(): Promise<UnifiedSessionMe | null> {
+  const account = await fetchAccountSessionMe().catch(() => null);
+  if (account?.walletAddress) {
+    return {
+      actorId: account.actorId,
+      walletAddress: account.walletAddress,
+      role: account.role,
+      userUid: account.userUid,
+      sessionId: account.profileId,
+      method: 'email',
+      verified: true,
+      email: account.email,
+      displayName: account.displayName,
+      walletProvider: account.walletProvider,
+      walletType: account.walletType
+    };
+  }
+
   const jwt = browserSafe()
     ? (window.localStorage.getItem('indigena_user_jwt') || '').trim()
     : '';
@@ -134,6 +174,12 @@ export async function refreshWalletAuthSessionClient(): Promise<WalletAuthSessio
 }
 
 export async function logoutWalletAuthSessionClient(): Promise<void> {
+  const accountSession = await getSupabaseBrowserSession().catch(() => null);
+  if (accountSession?.user) {
+    await logoutAccountSessionClient();
+    return;
+  }
+
   const refreshToken = browserSafe()
     ? (window.localStorage.getItem('indigena_user_refresh_token') || '').trim()
     : '';
@@ -152,6 +198,16 @@ export async function logoutWalletAuthSessionClient(): Promise<void> {
 }
 
 export async function ensureWalletSessionAuth(): Promise<void> {
+  const account = await syncAccountSessionFromSupabase().catch(() => null);
+  if (account?.walletAddress) return;
+
+  try {
+    const ensured = await ensureAccountSessionAuth();
+    if (ensured?.walletAddress) return;
+  } catch {
+    // Fall through to the legacy wallet-session path for compatibility while Phase 1 rolls out.
+  }
+
   if (!browserSafe()) return;
   const currentJwt = (window.localStorage.getItem('indigena_user_jwt') || '').trim();
   if (currentJwt && !isWalletSessionExpired(currentJwt)) return;
@@ -188,3 +244,5 @@ export async function ensureWalletSessionAuth(): Promise<void> {
   }
   await verifyWalletAuthChallengeClient(wallet, challenge.challengeId, signature);
 }
+
+

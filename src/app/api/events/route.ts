@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createCommunityEvent, listCommunityEvents } from '@/app/lib/eventTicketing';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ message: 'Invalid event payload.' }, { status: 400 });
   const actorId = resolveRequestActorId(req);
   if (actorId === 'guest') {
-    return NextResponse.json({ message: 'Wallet sign-in is required to create an event.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in is required to create an event.' }, { status: 401 });
   }
   const event = await createCommunityEvent({
     title: text(body.title),
@@ -44,3 +44,6 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ data: { event } }, { status: 201 });
 }
+
+
+

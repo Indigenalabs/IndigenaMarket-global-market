@@ -1,5 +1,5 @@
 create table if not exists public.creator_profile_campaign_insights (
-  campaign_id text primary key references public.creator_marketing_campaigns(id) on delete cascade,
+  campaign_id uuid primary key references public.creator_marketing_campaigns(id) on delete cascade,
   profile_slug text not null references public.creator_profiles(slug) on delete cascade,
   placement_label text not null,
   status text not null default 'draft',

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
+import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
 import { getProfileMessageThreadsBySlug } from '@/app/profile/data/profileShowcase';
 
 function asText(value: unknown, fallback = '') {
@@ -15,8 +16,13 @@ function timeLabel(isoValue: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const slug = new URL(req.url).searchParams.get('slug') || 'aiyana-redbird';
   const actorId = resolveRequestActorId(req);
+  const explicitSlug = (new URL(req.url).searchParams.get('slug') || '').trim();
+  const slug = explicitSlug || (await findCreatorProfileSlugForActor(actorId).catch(() => null)) || '';
+
+  if (!slug) {
+    return NextResponse.json({ data: { slug: '', threads: [] } });
+  }
 
   if (!isSupabaseServerConfigured()) {
     return NextResponse.json({ data: { slug, threads: getProfileMessageThreadsBySlug(slug) } });
@@ -124,7 +130,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const actorId = resolveRequestActorId(req);
   if (!actorId || actorId === 'guest') {
-    return NextResponse.json({ message: 'Wallet sign-in required to send a message.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in required to send a message.' }, { status: 401 });
   }
 
   const body = (await req.json().catch(() => ({}))) as {

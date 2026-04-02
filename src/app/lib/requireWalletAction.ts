@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { ensureWalletSessionAuth, fetchWalletSessionMe } from './walletAuthClient';
 
@@ -6,6 +6,7 @@ type WalletPromptDetail = {
   state: 'pending' | 'success' | 'error';
   actionLabel: string;
   message: string;
+  redirectHref?: string;
 };
 
 function getStoredWallet() {
@@ -19,17 +20,17 @@ function emitWalletPrompt(detail: WalletPromptDetail) {
 }
 
 function formatWalletActionError(error: unknown, actionLabel: string) {
-  const fallback = `Connect your wallet to ${actionLabel}.`;
+  const fallback = `Sign in to ${actionLabel}.`;
   const message = error instanceof Error ? error.message : '';
   if (!message) return fallback;
   if (message.includes('provider not found')) {
-    return `Install or open your browser wallet to ${actionLabel}.`;
+    return `Sign in with your email account to ${actionLabel}.`;
   }
   if (message.includes('no connected wallet account')) {
-    return `Connect a wallet account to ${actionLabel}.`;
+    return `Finish signing in to ${actionLabel}.`;
   }
   if (message.toLowerCase().includes('user rejected') || message.toLowerCase().includes('denied')) {
-    return `Wallet sign-in was cancelled. Connect your wallet to ${actionLabel}.`;
+    return `Sign-in was cancelled. Sign in to ${actionLabel}.`;
   }
   return message;
 }
@@ -39,18 +40,18 @@ export async function requireWalletAction(actionLabel: string) {
     emitWalletPrompt({
       state: 'pending',
       actionLabel,
-      message: `Opening secure wallet sign-in to ${actionLabel}.`
+      message: `Checking your secure account session to ${actionLabel}.`
     });
     await ensureWalletSessionAuth();
     const me = await fetchWalletSessionMe().catch(() => null);
     const wallet = me?.walletAddress || getStoredWallet();
     if (!wallet) {
-      throw new Error(`Connect your wallet to ${actionLabel}.`);
+      throw new Error(`Sign in to ${actionLabel}.`);
     }
     emitWalletPrompt({
       state: 'success',
       actionLabel,
-      message: `Wallet connected. You can now ${actionLabel}.`
+      message: `Signed in successfully. You can now ${actionLabel}.`
     });
     return {
       wallet,
@@ -62,8 +63,15 @@ export async function requireWalletAction(actionLabel: string) {
     emitWalletPrompt({
       state: 'error',
       actionLabel,
-      message
+      message,
+      redirectHref:
+        typeof window !== 'undefined'
+          ? `/sign-in?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}${window.location.hash}`)}`
+          : '/sign-in'
     });
     throw new Error(message);
   }
 }
+
+
+

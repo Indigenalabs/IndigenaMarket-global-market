@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to upload profile media.',
+    guestMessage: 'Sign in to upload profile media.',
     forbiddenMessage: 'You can only upload media for your own profile.',
     select: 'owner_actor_id'
   });
@@ -62,3 +62,6 @@ export async function POST(req: NextRequest) {
   const dataUrl = `data:${contentType};base64,${base64}`;
   return NextResponse.json({ data: { ok: true, url: dataUrl } });
 }
+
+
+

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { requireCreatorProfileOwner, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
 import { updateCreatorProfileOfferingDetails, type ProfileOffering } from '@/app/profile/data/profileShowcase';
 
 function asText(value: unknown, fallback = '') {
@@ -17,11 +17,21 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to edit a listing.',
+    guestMessage: 'Sign in to edit a listing.',
     forbiddenMessage: 'You can only edit your own listings.',
     select: 'owner_actor_id'
   });
   if ('error' in owner) return owner.error;
+
+  const status = asText(body.status);
+  const featured = Boolean(body.featured);
+  const requiresVerifiedSeller = ['Active', 'Bookable', 'Enrolling', 'Waitlist'].includes(status) || featured;
+  if (requiresVerifiedSeller) {
+    const sellerGate = await requireVerifiedSellerForActor(owner.actorId, {
+      forbiddenMessage: 'Verification approval is required before you can publish or feature a listing.'
+    });
+    if ('error' in sellerGate) return sellerGate.error;
+  }
 
   if (owner.supabase) {
     const { error } = await owner.supabase
@@ -70,3 +80,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ data: { ok: true, profile } });
 }
+
+
+

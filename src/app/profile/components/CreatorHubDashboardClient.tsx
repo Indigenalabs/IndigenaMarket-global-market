@@ -1,4 +1,4 @@
-
+﻿
 'use client';
 
 import type { ReactNode } from 'react';
@@ -3652,6 +3652,27 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
             </div>
           </Panel>
           <div className="space-y-6">
+            <Panel title="Seller Verification" eyebrow="Indigenous trust gate" icon={ShieldCheck}>
+              <p className="text-sm leading-7 text-gray-300">
+                Selling rights are now tied to a dedicated verification application. Use it to submit your nation or
+                community context, explain your role, and track the permissions unlocked for selling, payouts, and
+                verified campaigns.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href={`/verification/apply?profileSlug=${encodeURIComponent(slug)}`}
+                  className="rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]"
+                >
+                  Apply for seller verification
+                </Link>
+                <Link
+                  href={`/verification/status?profileSlug=${encodeURIComponent(slug)}`}
+                  className="rounded-full border border-white/10 px-5 py-2 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white"
+                >
+                  View verification status
+                </Link>
+              </div>
+            </Panel>
             <Panel title="Verification Services" eyebrow="Paid products" icon={CircleDollarSign}>
               <div className="space-y-3">
                 {VERIFICATION_PRODUCTS.map((product) => {
@@ -3871,4 +3892,5 @@ function resolveLauncherPillar(title: (typeof CREATE_LAUNCHERS)[number]['title']
       return 'seva';
   }
 }
+
 

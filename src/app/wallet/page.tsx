@@ -6,6 +6,7 @@ import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, Copy, External
 import Sidebar from '@/app/components/Sidebar';
 import WalletSessionEntry from '@/app/components/WalletSessionEntry';
 import { fetchWalletSnapshot } from '@/app/lib/walletApi';
+import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
 
 const emptyWalletData = {
   address: '',
@@ -40,12 +41,17 @@ export default function WalletPage() {
   const [myNFTs] = useState<Array<{ id: string; title: string; image: string; price: number; listed: boolean }>>([]);
   const [walletConnected, setWalletConnected] = useState(false);
   const [loadingLive, setLoadingLive] = useState(false);
+  const [walletProvider, setWalletProvider] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
 
   useEffect(() => {
     let active = true;
     const loadWallet = async () => {
       setLoadingLive(true);
       try {
+        const account = await fetchAccountSessionMe().catch(() => null);
+        if (account?.email) setAccountEmail(account.email);
+        if (account?.walletProvider) setWalletProvider(account.walletProvider);
         const walletAddress =
           typeof window !== 'undefined'
             ? (window.localStorage.getItem('indigena_wallet_address') || '').trim()
@@ -96,6 +102,7 @@ export default function WalletPage() {
 
   const openExplorer = () => {
     if (typeof window === 'undefined') return;
+    if (walletProvider === 'indigena_managed') return;
     window.open('https://bithomp.com/explorer/' + walletData.address, '_blank', 'noopener,noreferrer');
   };
 
@@ -120,7 +127,7 @@ export default function WalletPage() {
           <div>
             <h1 className="text-3xl font-bold text-white">My Wallet</h1>
             <p className="text-gray-400">
-              Manage your assets and transactions {loadingLive ? '• syncing live data...' : walletConnected ? '• live' : '• connect wallet'}
+              Manage your assets and transactions {loadingLive ? '• syncing live data...' : walletConnected ? '• live' : '• sign in to sync'}
             </p>
           </div>
         </div>
@@ -132,7 +139,7 @@ export default function WalletPage() {
 
       {!walletConnected && !loadingLive ? (
         <div className="mb-6 rounded-xl border border-[#d4af37]/20 bg-[#141414] p-4 text-sm text-gray-300">
-          Connect a wallet session to load live balances, transaction history, and financial services.
+          Sign in to load live balances, transaction history, and financial services.
         </div>
       ) : null}
 
@@ -144,8 +151,9 @@ export default function WalletPage() {
               <Shield size={20} className="text-[#d4af37]" />
             </div>
             <div>
-              <p className="text-gray-400 text-sm">Wallet Address</p>
+              <p className="text-gray-400 text-sm">Managed Wallet</p>
               <p className="text-white font-mono">{walletData.address ? `${walletData.address.slice(0, 8)}...${walletData.address.slice(-8)}` : 'No wallet connected'}</p>
+              {accountEmail ? <p className="mt-1 text-xs text-gray-500">{accountEmail}</p> : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -158,12 +166,16 @@ export default function WalletPage() {
             </button>
             <button
               onClick={openExplorer}
+              disabled={walletProvider === 'indigena_managed'}
               className="p-2 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-lg text-[#d4af37] hover:bg-[#d4af37] hover:text-black transition-all"
             >
               <ExternalLink size={18} />
             </button>
           </div>
         </div>
+        {walletProvider === 'indigena_managed' ? (
+          <p className="mt-3 text-xs leading-6 text-gray-500">This wallet is managed by Indigena as part of your email-based account. External explorer links are reserved for connected external wallets later.</p>
+        ) : null}
       </div>
 
       {/* Balance Cards */}
@@ -437,3 +449,6 @@ export default function WalletPage() {
     </div>
   );
 }
+
+
+
