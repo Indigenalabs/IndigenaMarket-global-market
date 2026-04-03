@@ -493,6 +493,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       disputeAmount: 0,
       creatorNetAmount: Number(quote.creatorNet),
       disputeReason: '',
+      sourceType: 'listing',
+      sourceId: b,
+      metadata: {
+        currency: saleContext.currency,
+        receiptId,
+        memberPlanId
+      },
       createdAt: new Date().toISOString()
     });
     return ok({

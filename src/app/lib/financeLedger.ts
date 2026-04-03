@@ -3,8 +3,10 @@ import path from 'node:path';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { assertRuntimePersistenceAllowed } from '@/app/lib/runtimePersistence';
 import type { CreatorTransaction, ProfilePillarId } from '@/app/profile/data/profileShowcase';
+import { listPlatformAccountDashboard } from '@/app/lib/platformAccounts';
+import { executeRevenueSplitExecution } from '@/app/lib/splitTreasuryEngine';
 
-export type FinanceLedgerEntryType = 'sale' | 'payout' | 'refund' | 'fee' | 'dispute';
+export type FinanceLedgerEntryType = 'sale' | 'royalty' | 'payout' | 'refund' | 'fee' | 'dispute';
 export type FinanceLedgerStatus = 'paid' | 'pending_payout' | 'settled' | 'refunded' | 'disputed';
 
 export interface FinanceLedgerEntry {
@@ -23,6 +25,9 @@ export interface FinanceLedgerEntry {
   disputeAmount: number;
   creatorNetAmount: number;
   disputeReason: string;
+  sourceType?: string;
+  sourceId?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -127,12 +132,47 @@ function normalizeDbRow(row: Record<string, unknown>): FinanceLedgerEntry {
     platformFeeAmount: Number(row.platform_fee_amount || 0),
     processorFeeAmount: Number(row.processor_fee_amount || 0),
     escrowFeeAmount: Number(row.escrow_fee_amount || 0),
-    refundAmount: Number(row.refund_amount || 0),
-    disputeAmount: Number(row.dispute_amount || 0),
-    creatorNetAmount: Number(row.creator_net_amount || 0),
-    disputeReason: String(row.dispute_reason || ''),
-    createdAt: String(row.created_at || '')
-  };
+      refundAmount: Number(row.refund_amount || 0),
+      disputeAmount: Number(row.dispute_amount || 0),
+      creatorNetAmount: Number(row.creator_net_amount || 0),
+      disputeReason: String(row.dispute_reason || ''),
+      sourceType: String(row.source_type || ''),
+      sourceId: String(row.source_id || ''),
+      metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? (row.metadata as Record<string, unknown>) : {},
+      createdAt: String(row.created_at || '')
+    };
+}
+
+function normalizeValue(value: string) {
+  return String(value || '').trim().toLowerCase();
+}
+
+async function maybeExecuteSplitForLedgerEntry(entry: FinanceLedgerEntry) {
+  if (!['sale', 'royalty'].includes(entry.type)) return;
+  if (Number(entry.grossAmount || 0) <= 0) return;
+  const dashboard = await listPlatformAccountDashboard();
+  const match = dashboard.revenueSplitRules.find((rule) => {
+    if (rule.status !== 'active') return false;
+    if (rule.pillar !== entry.pillar) return false;
+    if (entry.sourceId && normalizeValue(rule.offeringId) === normalizeValue(entry.sourceId)) return true;
+    return normalizeValue(rule.offeringLabel) === normalizeValue(entry.item);
+  });
+  if (!match) return;
+  const eventSourceId = String(
+    entry.metadata?.orderId ||
+      entry.metadata?.receiptId ||
+      entry.metadata?.bookingId ||
+      entry.metadata?.referenceId ||
+      entry.id
+  );
+  await executeRevenueSplitExecution({
+    splitRuleId: match.id,
+    sourceType: entry.type === 'royalty' ? 'royalty' : 'sale',
+    sourceId: eventSourceId,
+    grossAmount: Number(entry.grossAmount || 0),
+    currency: String(entry.metadata?.currency || 'INDI'),
+    sourceReference: `finance-ledger:${entry.id}:${entry.sourceId || eventSourceId}`
+  });
 }
 
 export async function listFinanceLedgerEntries(profileSlug: string, actorId: string, fallbackTransactions: CreatorTransaction[] = []) {
@@ -175,16 +215,21 @@ export async function appendFinanceLedgerEntry(entry: FinanceLedgerEntry) {
         dispute_amount: entry.disputeAmount,
         creator_net_amount: entry.creatorNetAmount,
         dispute_reason: entry.disputeReason,
+        source_type: entry.sourceType || null,
+        source_id: entry.sourceId || null,
+        metadata: entry.metadata || {},
         created_at: entry.createdAt
       },
       { onConflict: 'id' }
     );
+    await maybeExecuteSplitForLedgerEntry(entry).catch(() => null);
     return entry;
   }
 
   const runtime = await readRuntime();
   const next = [entry, ...runtime.filter((current) => current.id !== entry.id)];
   await writeRuntime(next);
+  await maybeExecuteSplitForLedgerEntry(entry).catch(() => null);
   return entry;
 }
 

@@ -7,7 +7,7 @@ import Sidebar from '@/app/components/Sidebar';
 import WalletSessionEntry from '@/app/components/WalletSessionEntry';
 import { fetchWalletSnapshot } from '@/app/lib/walletApi';
 import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
-import { fetchMyIndiBalance, fetchMyIndiLedger, recordMyIndiTopUp, requestMyIndiWithdrawal } from '@/app/lib/indiBalanceApi';
+import { fetchMyIndiBalance, fetchMyIndiLedger, fetchMyIndiWithdrawals, recordMyIndiTopUp, requestMyIndiWithdrawal } from '@/app/lib/indiBalanceApi';
 
 const emptyWalletData = {
   address: '',
@@ -68,6 +68,11 @@ export default function WalletPage() {
   const [submittingAction, setSubmittingAction] = useState<'deposit' | 'withdraw' | ''>('');
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
+  const [withdrawDestinationType, setWithdrawDestinationType] = useState<'bank_account' | 'payid' | 'debit_card' | 'manual_review'>('bank_account');
+  const [withdrawDestinationLabel, setWithdrawDestinationLabel] = useState('Primary bank payout');
+  const [withdrawAccountName, setWithdrawAccountName] = useState('');
+  const [withdrawLast4, setWithdrawLast4] = useState('');
+  const [withdrawalRequests, setWithdrawalRequests] = useState<Array<{ id: string; amount: number; netAmount: number; destinationLabel: string; destinationType: string; status: string; requestedAt: string }>>([]);
 
   const loadWallet = useCallback(async () => {
     setLoadingLive(true);
@@ -91,10 +96,11 @@ export default function WalletPage() {
         setCreatorProfileSlug('');
         return;
       }
-      const [snapshot, indiBalance, indiLedger] = await Promise.all([
+      const [snapshot, indiBalance, indiLedger, indiWithdrawals] = await Promise.all([
         walletAddress ? fetchWalletSnapshot(walletAddress).catch(() => null) : Promise.resolve(null),
         account?.actorId ? fetchMyIndiBalance(profileSlug).catch(() => null) : Promise.resolve(null),
-        account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([])
+        account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([]),
+        account?.actorId ? fetchMyIndiWithdrawals(profileSlug).catch(() => []) : Promise.resolve([])
       ]);
       setWalletConnected(true);
       const ledgerTransactions = indiLedger.map((entry) => ({
@@ -120,6 +126,17 @@ export default function WalletPage() {
       setIndiPendingBalance(indiBalance?.pendingBalance ?? 0);
       setIndiLifetimeCredits(indiBalance?.lifetimeCreditAmount ?? 0);
       setIndiLifetimeDebits(indiBalance?.lifetimeDebitAmount ?? 0);
+      setWithdrawalRequests(
+        indiWithdrawals.map((request) => ({
+          id: request.id,
+          amount: Number(request.amount || 0),
+          netAmount: Number(request.netAmount || 0),
+          destinationLabel: request.destinationLabel || 'Fiat payout destination',
+          destinationType: request.destinationType,
+          status: request.status,
+          requestedAt: request.requestedAt
+        }))
+      );
     } catch {
       setWalletConnected(false);
       setWalletData(emptyWalletData);
@@ -127,6 +144,7 @@ export default function WalletPage() {
       setIndiPendingBalance(0);
       setIndiLifetimeCredits(0);
       setIndiLifetimeDebits(0);
+      setWithdrawalRequests([]);
     } finally {
       setLoadingLive(false);
     }
@@ -177,6 +195,10 @@ export default function WalletPage() {
         amount,
         profileSlug: creatorProfileSlug,
         destination: 'fiat',
+        destinationType: withdrawDestinationType,
+        destinationLabel: withdrawDestinationLabel,
+        accountName: withdrawAccountName,
+        last4: withdrawLast4,
         note: 'Wallet quick action withdrawal'
       });
       setActionMessage(`Queued a ${amount.toLocaleString()} INDI withdrawal request for fiat settlement.`);
@@ -426,6 +448,37 @@ export default function WalletPage() {
                   <p className="text-white font-medium">Withdraw To Fiat</p>
                   <p className="text-gray-400 text-xs">Queue a withdrawal request from your INDI balance into the payout rail.</p>
                 </div>
+                <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <select
+                    value={withdrawDestinationType}
+                    onChange={(event) => setWithdrawDestinationType(event.target.value as typeof withdrawDestinationType)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                  >
+                    <option value="bank_account">Bank account</option>
+                    <option value="payid">PayID</option>
+                    <option value="debit_card">Debit card</option>
+                    <option value="manual_review">Manual review</option>
+                  </select>
+                  <input
+                    value={withdrawDestinationLabel}
+                    onChange={(event) => setWithdrawDestinationLabel(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Primary bank payout"
+                  />
+                  <input
+                    value={withdrawAccountName}
+                    onChange={(event) => setWithdrawAccountName(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Account holder"
+                  />
+                  <input
+                    value={withdrawLast4}
+                    onChange={(event) => setWithdrawLast4(event.target.value)}
+                    maxLength={4}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Last 4"
+                  />
+                </div>
                 <div className="flex gap-2">
                   <input
                     value={withdrawAmount}
@@ -450,6 +503,29 @@ export default function WalletPage() {
                   {actionError || actionMessage}
                 </div>
               ) : null}
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-white font-medium">Withdrawal Status</p>
+                  <p className="text-xs text-gray-500">{withdrawalRequests.length} requests</p>
+                </div>
+                <div className="space-y-2">
+                  {withdrawalRequests.length === 0 ? (
+                    <p className="text-xs text-gray-500">No withdrawal requests yet.</p>
+                  ) : withdrawalRequests.slice(0, 4).map((request) => (
+                    <div key={request.id} className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                      <div>
+                        <p className="text-sm text-white">{request.amount.toLocaleString()} INDI to {request.destinationLabel}</p>
+                        <p className="text-xs text-gray-500">{request.destinationType.replace('_', ' ')} • {new Date(request.requestedAt).toLocaleDateString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-[#d4af37]">{request.netAmount.toLocaleString()} net</p>
+                        <p className="text-xs uppercase tracking-[0.16em] text-gray-400">{request.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => router.push('/digital-arts/add')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">

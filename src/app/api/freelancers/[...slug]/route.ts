@@ -181,6 +181,12 @@ async function createEscrowOrder(serviceId: string, req: NextRequest, body: R) {
       disputeAmount: 0,
       creatorNetAmount: Number(quote.creatorNet),
       disputeReason: '',
+      sourceType: 'service',
+      sourceId: String(order.service_id || body.serviceId || order.id),
+      metadata: {
+        currency: String(order.currency || body.currency || 'INDI'),
+        orderId: String(order.id)
+      },
       createdAt: String(order.created_at)
     });
   }

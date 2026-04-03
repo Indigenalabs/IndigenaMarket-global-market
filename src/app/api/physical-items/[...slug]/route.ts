@@ -210,13 +210,14 @@ async function confirmCheckoutOrder(orderId: string, req: NextRequest) {
     });
   }
 
-  const sellerGroups = new Map<string, { itemSummary: string[]; subtotal: number }>();
+  const sellerGroups = new Map<string, { itemSummary: string[]; itemIds: string[]; subtotal: number }>();
   for (const entry of items) {
     const itemId = String(entry.itemId || '');
     const actorId = makerByItemId.get(itemId) || String(entry.makerActorId || entry.maker || itemId || '').trim();
     if (!actorId) continue;
-    const group = sellerGroups.get(actorId) || { itemSummary: [], subtotal: 0 };
+    const group = sellerGroups.get(actorId) || { itemSummary: [], itemIds: [], subtotal: 0 };
     group.itemSummary.push(String(entry.title || itemId || 'Physical item'));
+    if (itemId) group.itemIds.push(itemId);
     group.subtotal += Number(entry.price || 0) * Math.max(1, Number(entry.quantity || 1));
     sellerGroups.set(actorId, group);
   }
@@ -250,6 +251,14 @@ async function confirmCheckoutOrder(orderId: string, req: NextRequest) {
       disputeAmount: 0,
       creatorNetAmount,
       disputeReason: '',
+      sourceType: 'listing',
+      sourceId: group.itemIds[0] || orderId,
+      metadata: {
+        currency: String(body.currency || 'INDI'),
+        sellerActorId,
+        orderId,
+        itemIds: group.itemIds
+      },
       createdAt: new Date().toISOString()
     });
   }

@@ -134,6 +134,7 @@ export async function executeRevenueSplitExecution(input: {
         currency: preview.currency,
         counterparty: `${preview.sourceType}:${preview.sourceId}`,
         note: `${preview.offeringLabel} ${preview.sourceType} allocation`,
+        type: preview.sourceType === 'royalty' ? 'royalty' : 'sale-split',
         restricted,
         sourceReference: preview.sourceReference
       });

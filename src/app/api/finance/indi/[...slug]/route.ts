@@ -3,6 +3,7 @@ import { appendIndiLedgerEntry, getIndiBalanceSnapshot, listIndiLedgerEntries } 
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
+import { createIndiWithdrawalRequest, listIndiWithdrawalRequests, updateIndiWithdrawalRequestStatus } from '@/app/lib/indiWithdrawalRequests';
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ message }, { status });
@@ -33,6 +34,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   if (a === 'ledger' && b === 'me') {
     const entries = await listIndiLedgerEntries({ actorId, profileSlug, limit: 200 });
     return NextResponse.json({ data: entries });
+  }
+
+  if (a === 'withdrawals' && b === 'me') {
+    const requests = await listIndiWithdrawalRequests({ actorId, profileSlug });
+    return NextResponse.json({ data: requests });
   }
 
   return fail('Unsupported INDI finance endpoint.', 404);
@@ -75,7 +81,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         note: asText(body.note)
       }
     });
-    return NextResponse.json({ data: result }, { status: 201 });
+    const withdrawalRequest = await createIndiWithdrawalRequest({
+      actorId,
+      profileSlug,
+      amount,
+      destinationType: (asText(body.destinationType, 'manual_review') || 'manual_review') as any,
+      destinationLabel: asText(body.destinationLabel, 'Fiat payout destination'),
+      destinationDetails: {
+        destination: asText(body.destination, 'fiat'),
+        accountName: asText(body.accountName),
+        last4: asText(body.last4),
+        note: asText(body.note)
+      },
+      note: asText(body.note),
+      ledgerEntryId: result.entry.id,
+      referenceId: result.entry.referenceId
+    });
+    return NextResponse.json({ data: { ...result, withdrawalRequest } }, { status: 201 });
   }
 
   if (action === 'record-top-up') {
@@ -122,6 +144,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       }
     });
     return NextResponse.json({ data: result }, { status: 201 });
+  }
+
+  if (action === 'update-withdrawal-status') {
+    const adminGate = await requirePlatformAdmin(req);
+    if (adminGate.error) return adminGate.error;
+    const requestId = asText(body.requestId);
+    const status = asText(body.status) as any;
+    if (!requestId || !status) return fail('requestId and status are required.');
+    const updated = await updateIndiWithdrawalRequestStatus({
+      id: requestId,
+      status,
+      note: asText(body.note)
+    });
+    return NextResponse.json({ data: updated });
   }
 
   return fail('Unsupported INDI balance action.', 400);

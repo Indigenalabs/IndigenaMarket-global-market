@@ -184,6 +184,12 @@ async function createBuyOrder(listingId: string, req: NextRequest, body: R) {
       disputeAmount: 0,
       creatorNetAmount: Number(quote.creatorNet),
       disputeReason: '',
+      sourceType: 'listing',
+      sourceId: listingId,
+      metadata: {
+        currency: String(order.currency || body.currency || 'INDI'),
+        orderId: String(order.id)
+      },
       createdAt: String(order.created_at)
     });
   }

@@ -320,6 +320,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         disputeAmount: 0,
         creatorNetAmount: Number(quote.creatorNet),
         disputeReason: '',
+        sourceType: 'course',
+        sourceId: a,
+        metadata: {
+          currency: pricing.currency,
+          receiptId
+        },
         createdAt: new Date().toISOString()
       });
     }
