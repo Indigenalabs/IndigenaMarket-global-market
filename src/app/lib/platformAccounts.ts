@@ -532,13 +532,17 @@ export async function listPlatformAccountDashboard(): Promise<PlatformAccountDas
     list.push(row);
     beneficiariesByRule.set(ruleId, list);
   }
-  return {
+  const dashboard = {
     accounts: ((accounts.data || []) as Record<string, unknown>[]).map(accountFromRow),
     members: ((members.data || []) as Record<string, unknown>[]).map(memberFromRow),
     verifications: ((verifications.data || []) as Record<string, unknown>[]).map(verificationFromRow),
     elderAuthorities: ((elderAuthorities.data || []) as Record<string, unknown>[]).map(elderFromRow),
     revenueSplitRules: ((splitRules.data || []) as Record<string, unknown>[]).map((row) => splitFromRows(row, beneficiariesByRule.get(String(row.id || '')) || []))
   };
+  if (!dashboard.accounts.length && !dashboard.revenueSplitRules.length) {
+    return readRuntime();
+  }
+  return dashboard;
 }
 
 export async function listPlatformAccounts(filter?: { accountTypes?: PlatformAccountType[] }) {

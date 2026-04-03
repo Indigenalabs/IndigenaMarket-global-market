@@ -1,13 +1,13 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, Copy, ExternalLink, Shield, History, Grid, List, Heart } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, Copy, ExternalLink, Shield, History, Grid, List, Heart, Loader2 } from 'lucide-react';
 import Sidebar from '@/app/components/Sidebar';
 import WalletSessionEntry from '@/app/components/WalletSessionEntry';
 import { fetchWalletSnapshot } from '@/app/lib/walletApi';
 import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
-import { fetchMyIndiBalance, fetchMyIndiLedger } from '@/app/lib/indiBalanceApi';
+import { fetchMyIndiBalance, fetchMyIndiLedger, recordMyIndiTopUp, requestMyIndiWithdrawal } from '@/app/lib/indiBalanceApi';
 
 const emptyWalletData = {
   address: '',
@@ -62,77 +62,131 @@ export default function WalletPage() {
   const [indiPendingBalance, setIndiPendingBalance] = useState(0);
   const [indiLifetimeCredits, setIndiLifetimeCredits] = useState(0);
   const [indiLifetimeDebits, setIndiLifetimeDebits] = useState(0);
+  const [creatorProfileSlug, setCreatorProfileSlug] = useState('');
+  const [depositAmount, setDepositAmount] = useState('250');
+  const [withdrawAmount, setWithdrawAmount] = useState('50');
+  const [submittingAction, setSubmittingAction] = useState<'deposit' | 'withdraw' | ''>('');
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionError, setActionError] = useState('');
 
-  useEffect(() => {
-    let active = true;
-    const loadWallet = async () => {
-      setLoadingLive(true);
-      try {
-        const account = await fetchAccountSessionMe().catch(() => null);
-        if (account?.email) setAccountEmail(account.email);
-        if (account?.walletProvider) setWalletProvider(account.walletProvider);
-        const walletAddress = account?.walletAddress ||
-          (typeof window !== 'undefined'
-            ? (window.localStorage.getItem('indigena_wallet_address') || '').trim()
-            : '');
-        const profileSlug = account?.creatorProfileSlug || '';
-        if (!walletAddress && !account?.actorId) {
-          if (!active) return;
-          setWalletConnected(false);
-          setWalletData(emptyWalletData);
-          setTransactions([]);
-          setIndiPendingBalance(0);
-          setIndiLifetimeCredits(0);
-          setIndiLifetimeDebits(0);
-          return;
-        }
-        const [snapshot, indiBalance, indiLedger] = await Promise.all([
-          walletAddress ? fetchWalletSnapshot(walletAddress).catch(() => null) : Promise.resolve(null),
-          account?.actorId ? fetchMyIndiBalance(profileSlug).catch(() => null) : Promise.resolve(null),
-          account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([])
-        ]);
-        if (!active) return;
-        setWalletConnected(true);
-        const ledgerTransactions = indiLedger.map((entry) => ({
-          id: entry.id,
-          type: mapIndiLedgerType(entry.type),
-          item: entry.description || entry.type,
-          amount: Number(entry.amount || 0),
-          currency: 'INDI',
-          date: entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Recently',
-          status: entry.status
-        }));
-        setWalletData({
-          ...emptyWalletData,
-          address: walletAddress,
-          balance: {
-            INDI: indiBalance?.availableBalance ?? snapshot?.balance.INDI ?? 0,
-            XRP: snapshot?.balance.XRP ?? 0,
-            USD: indiBalance?.estimatedFiatValueUsd ?? snapshot?.balance.USD ?? 0
-          },
-          stats: snapshot?.stats ?? emptyWalletData.stats
-        });
-        setTransactions(ledgerTransactions.length > 0 ? ledgerTransactions : (snapshot?.transactions ?? []));
-        setIndiPendingBalance(indiBalance?.pendingBalance ?? 0);
-        setIndiLifetimeCredits(indiBalance?.lifetimeCreditAmount ?? 0);
-        setIndiLifetimeDebits(indiBalance?.lifetimeDebitAmount ?? 0);
-      } catch {
-        if (!active) return;
+  const loadWallet = useCallback(async () => {
+    setLoadingLive(true);
+    try {
+      const account = await fetchAccountSessionMe().catch(() => null);
+      if (account?.email) setAccountEmail(account.email);
+      if (account?.walletProvider) setWalletProvider(account.walletProvider);
+      const walletAddress = account?.walletAddress ||
+        (typeof window !== 'undefined'
+          ? (window.localStorage.getItem('indigena_wallet_address') || '').trim()
+          : '');
+      const profileSlug = account?.creatorProfileSlug || '';
+      setCreatorProfileSlug(profileSlug);
+      if (!walletAddress && !account?.actorId) {
         setWalletConnected(false);
         setWalletData(emptyWalletData);
         setTransactions([]);
         setIndiPendingBalance(0);
         setIndiLifetimeCredits(0);
         setIndiLifetimeDebits(0);
-      } finally {
-        if (active) setLoadingLive(false);
+        setCreatorProfileSlug('');
+        return;
       }
-    };
-    void loadWallet();
-    return () => {
-      active = false;
-    };
+      const [snapshot, indiBalance, indiLedger] = await Promise.all([
+        walletAddress ? fetchWalletSnapshot(walletAddress).catch(() => null) : Promise.resolve(null),
+        account?.actorId ? fetchMyIndiBalance(profileSlug).catch(() => null) : Promise.resolve(null),
+        account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([])
+      ]);
+      setWalletConnected(true);
+      const ledgerTransactions = indiLedger.map((entry) => ({
+        id: entry.id,
+        type: mapIndiLedgerType(entry.type),
+        item: entry.description || entry.type,
+        amount: Number(entry.amount || 0),
+        currency: 'INDI',
+        date: entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Recently',
+        status: entry.status
+      }));
+      setWalletData({
+        ...emptyWalletData,
+        address: walletAddress,
+        balance: {
+          INDI: indiBalance?.availableBalance ?? snapshot?.balance.INDI ?? 0,
+          XRP: snapshot?.balance.XRP ?? 0,
+          USD: indiBalance?.estimatedFiatValueUsd ?? snapshot?.balance.USD ?? 0
+        },
+        stats: snapshot?.stats ?? emptyWalletData.stats
+      });
+      setTransactions(ledgerTransactions.length > 0 ? ledgerTransactions : (snapshot?.transactions ?? []));
+      setIndiPendingBalance(indiBalance?.pendingBalance ?? 0);
+      setIndiLifetimeCredits(indiBalance?.lifetimeCreditAmount ?? 0);
+      setIndiLifetimeDebits(indiBalance?.lifetimeDebitAmount ?? 0);
+    } catch {
+      setWalletConnected(false);
+      setWalletData(emptyWalletData);
+      setTransactions([]);
+      setIndiPendingBalance(0);
+      setIndiLifetimeCredits(0);
+      setIndiLifetimeDebits(0);
+    } finally {
+      setLoadingLive(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadWallet();
+  }, [loadWallet]);
+
+  const submitDeposit = async () => {
+    const amount = Number(depositAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setActionError('Enter a valid INDI top-up amount.');
+      setActionMessage('');
+      return;
+    }
+    setSubmittingAction('deposit');
+    setActionError('');
+    setActionMessage('');
+    try {
+      await recordMyIndiTopUp({
+        amount,
+        profileSlug: creatorProfileSlug,
+        source: 'wallet-page',
+        note: 'Wallet quick action top-up'
+      });
+      setActionMessage(`Added ${amount.toLocaleString()} INDI to this managed balance.`);
+      await loadWallet();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Top-up failed.');
+    } finally {
+      setSubmittingAction('');
+    }
+  };
+
+  const submitWithdrawal = async () => {
+    const amount = Number(withdrawAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setActionError('Enter a valid withdrawal amount.');
+      setActionMessage('');
+      return;
+    }
+    setSubmittingAction('withdraw');
+    setActionError('');
+    setActionMessage('');
+    try {
+      await requestMyIndiWithdrawal({
+        amount,
+        profileSlug: creatorProfileSlug,
+        destination: 'fiat',
+        note: 'Wallet quick action withdrawal'
+      });
+      setActionMessage(`Queued a ${amount.toLocaleString()} INDI withdrawal request for fiat settlement.`);
+      await loadWallet();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Withdrawal request failed.');
+    } finally {
+      setSubmittingAction('');
+    }
+  };
 
   const copyAddress = async () => {
     try {
@@ -342,23 +396,71 @@ export default function WalletPage() {
           {/* Quick Actions */}
           <div className="bg-[#141414] rounded-xl border border-[#d4af37]/10 p-5">
             <h3 className="text-lg font-bold text-white mb-4">Quick Actions</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => router.push('/subscription')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">Deposit</p>
-                <p className="text-gray-400 text-xs">Add funds to wallet</p>
-              </button>
-              <button onClick={openExplorer} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">Withdraw</p>
-                <p className="text-gray-400 text-xs">Send to external wallet</p>
-              </button>
-              <button onClick={() => router.push('/digital-arts/add')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">Mint NFT</p>
-                <p className="text-gray-400 text-xs">Create new artwork</p>
-              </button>
-              <button onClick={() => router.push('/digital-arts')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">List Item</p>
-                <p className="text-gray-400 text-xs">Sell your NFTs</p>
-              </button>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-[#d4af37]/20 bg-[#d4af37]/5 p-4">
+                <div className="mb-3">
+                  <p className="text-white font-medium">Add INDI</p>
+                  <p className="text-gray-400 text-xs">Credit this managed balance so you can buy, support projects, or test future split flows.</p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={depositAmount}
+                    onChange={(event) => setDepositAmount(event.target.value)}
+                    inputMode="decimal"
+                    className="flex-1 rounded-lg border border-[#d4af37]/20 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="250"
+                  />
+                  <button
+                    onClick={submitDeposit}
+                    disabled={!walletConnected || submittingAction === 'deposit'}
+                    className="inline-flex min-w-[120px] items-center justify-center gap-2 rounded-lg bg-[#d4af37] px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#e4bf47] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {submittingAction === 'deposit' ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Top Up
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3">
+                  <p className="text-white font-medium">Withdraw To Fiat</p>
+                  <p className="text-gray-400 text-xs">Queue a withdrawal request from your INDI balance into the payout rail.</p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={withdrawAmount}
+                    onChange={(event) => setWithdrawAmount(event.target.value)}
+                    inputMode="decimal"
+                    className="flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="50"
+                  />
+                  <button
+                    onClick={submitWithdrawal}
+                    disabled={!walletConnected || submittingAction === 'withdraw'}
+                    className="inline-flex min-w-[120px] items-center justify-center gap-2 rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 px-4 py-2 text-sm font-semibold text-[#d4af37] transition-all hover:bg-[#d4af37]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {submittingAction === 'withdraw' ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Request
+                  </button>
+                </div>
+              </div>
+
+              {(actionMessage || actionError) ? (
+                <div className={`rounded-xl border px-4 py-3 text-sm ${actionError ? 'border-[#DC143C]/30 bg-[#DC143C]/10 text-[#ff9f9f]' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'}`}>
+                  {actionError || actionMessage}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => router.push('/digital-arts/add')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
+                  <p className="text-white font-medium">Mint NFT</p>
+                  <p className="text-gray-400 text-xs">Create new artwork</p>
+                </button>
+                <button onClick={() => router.push('/digital-arts')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
+                  <p className="text-white font-medium">List Item</p>
+                  <p className="text-gray-400 text-xs">Sell your NFTs</p>
+                </button>
+              </div>
             </div>
           </div>
         </div>

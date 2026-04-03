@@ -211,12 +211,16 @@ export async function listTreasuryDashboard(): Promise<TreasuryDashboard> {
     supabase.from('split_distributions').select('*').order('created_at', { ascending: false }),
     supabase.from('champion_sponsorship_disbursements').select('*').order('scheduled_for', { ascending: false })
   ]);
-  return {
+  const dashboard = {
     treasuries: ((treasuries.data || []) as any[]).map((row) => ({ id: String(row.id || ''), accountId: String(row.account_id || ''), accountSlug: String(row.account_slug || ''), label: String(row.label || ''), restrictedBalance: Number(row.restricted_balance || 0), unrestrictedBalance: Number(row.unrestricted_balance || 0), pendingDisbursementAmount: Number(row.pending_disbursement_amount || 0), nextDisbursementDate: String(row.next_disbursement_date || ''), reportingNote: String(row.reporting_note || '') })),
     ledger: ((ledger.data || []) as any[]).map((row) => ({ id: String(row.id || ''), accountId: String(row.account_id || ''), type: String(row.type || 'sale-split') as TreasuryLedgerEntryRecord['type'], amount: Number(row.amount || 0), currency: String(row.currency || 'USD'), counterparty: String(row.counterparty || ''), note: String(row.note || ''), status: String(row.status || 'posted') as TreasuryLedgerEntryRecord['status'], createdAt: String(row.created_at || '') })),
     splitDistributions: ((splitDistributions.data || []) as any[]).map((row) => ({ id: String(row.id || ''), splitRuleId: String(row.split_rule_id || ''), sourceType: String(row.source_type || 'sale') as SplitDistributionRecord['sourceType'], sourceId: String(row.source_id || ''), grossAmount: Number(row.gross_amount || 0), currency: String(row.currency || 'USD'), distributions: Array.isArray(row.distributions) ? row.distributions : [], createdAt: String(row.created_at || '') })),
     championDisbursements: ((championDisbursements.data || []) as any[]).map((row) => ({ id: String(row.id || ''), sponsorshipId: String(row.sponsorship_id || ''), championId: String(row.champion_id || ''), targetAccountId: String(row.target_account_id || ''), amount: Number(row.amount || 0), status: String(row.status || 'scheduled') as ChampionSponsorshipDisbursementRecord['status'], scheduledFor: String(row.scheduled_for || ''), paidOutAt: String(row.paid_out_at || ''), note: String(row.note || '') }))
   };
+  if (!dashboard.treasuries.length && !dashboard.splitDistributions.length && !dashboard.ledger.length) {
+    return readRuntime();
+  }
+  return dashboard;
 }
 
 export async function getTreasuryByCommunitySlug(slug: string) {
