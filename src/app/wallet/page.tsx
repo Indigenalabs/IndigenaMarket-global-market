@@ -7,6 +7,7 @@ import Sidebar from '@/app/components/Sidebar';
 import WalletSessionEntry from '@/app/components/WalletSessionEntry';
 import { fetchWalletSnapshot } from '@/app/lib/walletApi';
 import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
+import { fetchMyIndiBalance, fetchMyIndiLedger } from '@/app/lib/indiBalanceApi';
 
 const emptyWalletData = {
   address: '',
@@ -29,6 +30,21 @@ const emptyWalletData = {
   }
 };
 
+function mapIndiLedgerType(type: string): 'buy' | 'sell' | 'mint' | 'royalty' | 'bid' {
+  switch (type) {
+    case 'earning':
+    case 'deposit':
+    case 'refund':
+      return 'sell';
+    case 'withdrawal_request':
+    case 'withdrawal_complete':
+    case 'spend':
+      return 'buy';
+    default:
+      return 'royalty';
+  }
+}
+
 export default function WalletPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('overview');
@@ -43,6 +59,9 @@ export default function WalletPage() {
   const [loadingLive, setLoadingLive] = useState(false);
   const [walletProvider, setWalletProvider] = useState('');
   const [accountEmail, setAccountEmail] = useState('');
+  const [indiPendingBalance, setIndiPendingBalance] = useState(0);
+  const [indiLifetimeCredits, setIndiLifetimeCredits] = useState(0);
+  const [indiLifetimeDebits, setIndiLifetimeDebits] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -52,32 +71,59 @@ export default function WalletPage() {
         const account = await fetchAccountSessionMe().catch(() => null);
         if (account?.email) setAccountEmail(account.email);
         if (account?.walletProvider) setWalletProvider(account.walletProvider);
-        const walletAddress =
-          typeof window !== 'undefined'
+        const walletAddress = account?.walletAddress ||
+          (typeof window !== 'undefined'
             ? (window.localStorage.getItem('indigena_wallet_address') || '').trim()
-            : '';
-        if (!walletAddress) {
+            : '');
+        const profileSlug = account?.creatorProfileSlug || '';
+        if (!walletAddress && !account?.actorId) {
           if (!active) return;
           setWalletConnected(false);
           setWalletData(emptyWalletData);
           setTransactions([]);
+          setIndiPendingBalance(0);
+          setIndiLifetimeCredits(0);
+          setIndiLifetimeDebits(0);
           return;
         }
-        const snapshot = await fetchWalletSnapshot(walletAddress);
+        const [snapshot, indiBalance, indiLedger] = await Promise.all([
+          walletAddress ? fetchWalletSnapshot(walletAddress).catch(() => null) : Promise.resolve(null),
+          account?.actorId ? fetchMyIndiBalance(profileSlug).catch(() => null) : Promise.resolve(null),
+          account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([])
+        ]);
         if (!active) return;
         setWalletConnected(true);
+        const ledgerTransactions = indiLedger.map((entry) => ({
+          id: entry.id,
+          type: mapIndiLedgerType(entry.type),
+          item: entry.description || entry.type,
+          amount: Number(entry.amount || 0),
+          currency: 'INDI',
+          date: entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Recently',
+          status: entry.status
+        }));
         setWalletData({
           ...emptyWalletData,
-          address: snapshot.address,
-          balance: snapshot.balance,
-          stats: snapshot.stats
+          address: walletAddress,
+          balance: {
+            INDI: indiBalance?.availableBalance ?? snapshot?.balance.INDI ?? 0,
+            XRP: snapshot?.balance.XRP ?? 0,
+            USD: indiBalance?.estimatedFiatValueUsd ?? snapshot?.balance.USD ?? 0
+          },
+          stats: snapshot?.stats ?? emptyWalletData.stats
         });
-        setTransactions(snapshot.transactions);
+        setTransactions(ledgerTransactions.length > 0 ? ledgerTransactions : (snapshot?.transactions ?? []));
+        setIndiPendingBalance(indiBalance?.pendingBalance ?? 0);
+        setIndiLifetimeCredits(indiBalance?.lifetimeCreditAmount ?? 0);
+        setIndiLifetimeDebits(indiBalance?.lifetimeDebitAmount ?? 0);
       } catch {
         if (!active) return;
         setWalletConnected(false);
         setWalletData(emptyWalletData);
         setTransactions([]);
+        setIndiPendingBalance(0);
+        setIndiLifetimeCredits(0);
+        setIndiLifetimeDebits(0);
       } finally {
         if (active) setLoadingLive(false);
       }
@@ -187,6 +233,7 @@ export default function WalletPage() {
           </div>
           <p className="text-3xl font-bold text-white">{walletData.balance.INDI.toLocaleString()}</p>
           <p className="text-gray-400 text-sm">~ ${walletData.balance.USD.toLocaleString()} USD</p>
+          <p className="mt-1 text-xs text-gray-500">Pending: {indiPendingBalance.toLocaleString()} INDI</p>
         </div>
 
         <div className="bg-[#141414] rounded-xl border border-[#d4af37]/10 p-5">
@@ -422,6 +469,14 @@ export default function WalletPage() {
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Total Profit</span>
                 <span className="text-green-400 font-medium">+{walletData.stats.profit} INDI</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Lifetime Credits</span>
+                <span className="text-white font-medium">{indiLifetimeCredits.toLocaleString()} INDI</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Lifetime Debits</span>
+                <span className="text-white font-medium">{indiLifetimeDebits.toLocaleString()} INDI</span>
               </div>
             </div>
           </div>
