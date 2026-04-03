@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { assertRuntimePersistenceAllowed } from '@/app/lib/runtimePersistence';
+import { listIndiWithdrawalRequests, updateIndiWithdrawalRequestStatus, type IndiWithdrawalRequest, type IndiWithdrawalStatus } from '@/app/lib/indiWithdrawalRequests';
+import { updateFinanceLedgerEntryStatus, type FinanceLedgerEntry, type FinanceLedgerStatus } from '@/app/lib/financeLedger';
 
 export interface InstantPayoutRequest {
   id: string;
@@ -38,6 +40,8 @@ export interface FinancialServicesDashboard {
   payouts: InstantPayoutRequest[];
   bnplApplications: BnplApplication[];
   taxReports: TaxReportPurchase[];
+  indiWithdrawals: IndiWithdrawalRequest[];
+  royalties: FinanceLedgerEntry[];
 }
 
 const RUNTIME_DIR = path.join(process.cwd(), '.runtime');
@@ -47,26 +51,80 @@ async function ensureDir() { assertRuntimePersistenceAllowed('financial services
 async function readRuntime(): Promise<FinancialServicesDashboard> {
   await ensureDir();
   const raw = await fs.readFile(FILE, 'utf8').catch(() => '');
-  if (!raw) return { payouts: [], bnplApplications: [], taxReports: [] };
+  if (!raw) return { payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [] };
   try {
     const parsed = JSON.parse(raw) as Partial<FinancialServicesDashboard>;
-    return { payouts: Array.isArray(parsed.payouts) ? parsed.payouts : [], bnplApplications: Array.isArray(parsed.bnplApplications) ? parsed.bnplApplications : [], taxReports: Array.isArray(parsed.taxReports) ? parsed.taxReports : [] };
-  } catch { return { payouts: [], bnplApplications: [], taxReports: [] }; }
+    return {
+      payouts: Array.isArray(parsed.payouts) ? parsed.payouts : [],
+      bnplApplications: Array.isArray(parsed.bnplApplications) ? parsed.bnplApplications : [],
+      taxReports: Array.isArray(parsed.taxReports) ? parsed.taxReports : [],
+      indiWithdrawals: Array.isArray(parsed.indiWithdrawals) ? parsed.indiWithdrawals : [],
+      royalties: Array.isArray(parsed.royalties) ? parsed.royalties : []
+    };
+  } catch { return { payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [] }; }
 }
 async function writeRuntime(data: FinancialServicesDashboard) { await ensureDir(); await fs.writeFile(FILE, JSON.stringify(data, null, 2), 'utf8'); }
 
 export async function listFinancialServices() {
   if (!isSupabaseServerConfigured()) return readRuntime();
   const supabase = createSupabaseServerClient();
-  const [payouts, bnplApplications, taxReports] = await Promise.all([
+  const [payouts, bnplApplications, taxReports, indiWithdrawals, royalties] = await Promise.all([
     supabase.from('finance_instant_payout_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('finance_bnpl_applications').select('*').order('created_at', { ascending: false }),
-    supabase.from('finance_tax_report_purchases').select('*').order('created_at', { ascending: false })
+    supabase.from('finance_tax_report_purchases').select('*').order('created_at', { ascending: false }),
+    supabase.from('indi_withdrawal_requests').select('*').order('requested_at', { ascending: false }),
+    supabase.from('creator_finance_ledger').select('*').eq('entry_type', 'royalty').order('created_at', { ascending: false })
   ]);
   return {
     payouts: (payouts.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, walletAddress: row.wallet_address, amount: Number(row.amount || 0), feeAmount: Number(row.fee_amount || 0), netAmount: Number(row.net_amount || 0), status: row.status, createdAt: row.created_at })),
     bnplApplications: (bnplApplications.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, orderId: row.order_id, amount: Number(row.amount || 0), partner: row.partner, feeAmount: Number(row.fee_amount || 0), status: row.status, createdAt: row.created_at })),
-    taxReports: (taxReports.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, taxYear: Number(row.tax_year || new Date().getUTCFullYear()), feeAmount: Number(row.fee_amount || 25), status: row.status, createdAt: row.created_at }))
+    taxReports: (taxReports.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, taxYear: Number(row.tax_year || new Date().getUTCFullYear()), feeAmount: Number(row.fee_amount || 25), status: row.status, createdAt: row.created_at })),
+    indiWithdrawals: !indiWithdrawals.error && indiWithdrawals.data
+      ? indiWithdrawals.data.map((row: any) => ({
+          id: String(row.id || ''),
+          actorId: String(row.actor_id || ''),
+          profileSlug: String(row.profile_slug || ''),
+          userProfileId: String(row.user_profile_id || ''),
+          walletAccountId: String(row.wallet_account_id || ''),
+          amount: Number(row.amount || 0),
+          feeAmount: Number(row.fee_amount || 0),
+          netAmount: Number(row.net_amount || 0),
+          currency: 'INDI',
+          destinationType: row.destination_type || 'manual_review',
+          destinationLabel: String(row.destination_label || ''),
+          destinationDetails: row.destination_details || {},
+          status: row.status || 'requested',
+          note: String(row.note || ''),
+          ledgerEntryId: String(row.ledger_entry_id || ''),
+          referenceId: String(row.reference_id || ''),
+          requestedAt: String(row.requested_at || ''),
+          updatedAt: String(row.updated_at || ''),
+          completedAt: String(row.completed_at || '')
+        }))
+      : await listIndiWithdrawalRequests({ actorId: '', profileSlug: '' }),
+    royalties: !royalties.error && royalties.data
+      ? royalties.data.map((row: any) => ({
+          id: String(row.id || ''),
+          actorId: String(row.actor_id || ''),
+          profileSlug: String(row.profile_slug || ''),
+          pillar: String(row.pillar || 'digital-arts') as FinanceLedgerEntry['pillar'],
+          type: 'royalty',
+          status: String(row.status || 'paid') as FinanceLedgerStatus,
+          item: String(row.item || ''),
+          grossAmount: Number(row.gross_amount || 0),
+          platformFeeAmount: Number(row.platform_fee_amount || 0),
+          processorFeeAmount: Number(row.processor_fee_amount || 0),
+          escrowFeeAmount: Number(row.escrow_fee_amount || 0),
+          refundAmount: Number(row.refund_amount || 0),
+          disputeAmount: Number(row.dispute_amount || 0),
+          creatorNetAmount: Number(row.creator_net_amount || 0),
+          disputeReason: String(row.dispute_reason || ''),
+          sourceType: String(row.source_type || ''),
+          sourceId: String(row.source_id || ''),
+          metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? row.metadata : {},
+          createdAt: String(row.created_at || '')
+        }))
+      : []
   };
 }
 
@@ -138,4 +196,18 @@ export async function updateTaxReportStatus(id: string, status: TaxReportPurchas
     return updated;
   }
   const runtime = await readRuntime(); runtime.taxReports = runtime.taxReports.map((entry) => entry.id === id ? updated : entry); await writeRuntime(runtime); return updated;
+}
+
+export async function updateIndiWithdrawalOpsStatus(id: string, status: IndiWithdrawalStatus, note = '') {
+  return updateIndiWithdrawalRequestStatus({ id, status, note });
+}
+
+export async function updateRoyaltyLedgerStatus(id: string, status: FinanceLedgerStatus) {
+  return updateFinanceLedgerEntryStatus({
+    id,
+    status,
+    metadata: {
+      royaltyStatusUpdatedAt: new Date().toISOString()
+    }
+  });
 }

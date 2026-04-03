@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { assertRuntimePersistenceAllowed } from '@/app/lib/runtimePersistence';
+import { updateIndiLedgerEntryStatus } from '@/app/lib/indiBalanceLedger';
 
 export type IndiWithdrawalDestinationType = 'bank_account' | 'payid' | 'debit_card' | 'manual_review';
 export type IndiWithdrawalStatus = 'requested' | 'queued' | 'reviewing' | 'processing' | 'paid' | 'failed' | 'cancelled';
@@ -143,9 +144,20 @@ export async function listIndiWithdrawalRequests(input: { actorId: string; profi
         return data.map((row) => fromRow(row as Record<string, unknown>));
       }
       if (error && !shouldFallback(error)) throw error;
+    } else {
+      const { data, error } = await supabase
+        .from('indi_withdrawal_requests')
+        .select('*')
+        .order('requested_at', { ascending: false })
+        .limit(100);
+      if (!error && data) {
+        return data.map((row) => fromRow(row as Record<string, unknown>));
+      }
+      if (error && !shouldFallback(error)) throw error;
     }
   }
   const runtime = await readRuntime();
+  if (!actorId && !profileSlug) return runtime;
   return runtime.filter((row) => row.actorId === actorId || (!!profileSlug && row.profileSlug === profileSlug));
 }
 
@@ -244,7 +256,29 @@ export async function updateIndiWithdrawalRequestStatus(input: {
       .eq('id', input.id)
       .select('*')
       .single();
-    if (!error && data) return fromRow(data as Record<string, unknown>);
+    if (!error && data) {
+      const record = fromRow(data as Record<string, unknown>);
+      if (record.ledgerEntryId) {
+        const ledgerStatus =
+          input.status === 'paid'
+            ? 'completed'
+            : input.status === 'failed'
+              ? 'failed'
+              : input.status === 'cancelled'
+                ? 'cancelled'
+                : 'pending';
+        await updateIndiLedgerEntryStatus({
+          id: record.ledgerEntryId,
+          status: ledgerStatus,
+          metadata: {
+            payoutStatus: input.status,
+            payoutNote: input.note || record.note,
+            payoutUpdatedAt: nextUpdatedAt
+          }
+        }).catch(() => null);
+      }
+      return record;
+    }
     if (error && !shouldFallback(error)) throw error;
   }
 
@@ -259,5 +293,24 @@ export async function updateIndiWithdrawalRequestStatus(input: {
     completedAt: ['paid', 'failed', 'cancelled'].includes(input.status) ? nextUpdatedAt : ''
   };
   await writeRuntime(runtime);
+  if (runtime[index].ledgerEntryId) {
+    const ledgerStatus =
+      input.status === 'paid'
+        ? 'completed'
+        : input.status === 'failed'
+          ? 'failed'
+          : input.status === 'cancelled'
+            ? 'cancelled'
+            : 'pending';
+    await updateIndiLedgerEntryStatus({
+      id: runtime[index].ledgerEntryId,
+      status: ledgerStatus,
+      metadata: {
+        payoutStatus: input.status,
+        payoutNote: input.note ?? runtime[index].note,
+        payoutUpdatedAt: nextUpdatedAt
+      }
+    }).catch(() => null);
+  }
   return runtime[index];
 }

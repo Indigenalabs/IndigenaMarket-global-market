@@ -494,3 +494,53 @@ export async function appendIndiLedgerEntry(input: {
   const persisted = await persistBalanceSnapshot(snapshot);
   return { entry, balance: persisted };
 }
+
+export async function updateIndiLedgerEntryStatus(input: {
+  id: string;
+  status: IndiLedgerStatus;
+  metadata?: Record<string, unknown>;
+}) {
+  const nextUpdatedAt = nowIso();
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const currentResult = await supabase.from('indi_ledger_entries').select('*').eq('id', input.id).maybeSingle();
+    const current = currentResult.data ? normalizeLedgerRow(currentResult.data as Record<string, unknown>) : null;
+    if (current) {
+      const nextMetadata = { ...current.metadata, ...(input.metadata || {}) };
+      const { error } = await supabase
+        .from('indi_ledger_entries')
+        .update({
+          status: input.status,
+          metadata: nextMetadata,
+          effective_at: nextUpdatedAt
+        })
+        .eq('id', input.id);
+      if (error && !shouldFallbackToRuntime(error)) throw error;
+      if (!error) {
+        const entries = await listIndiLedgerEntries({ actorId: current.actorId, profileSlug: current.profileSlug, limit: 300 });
+        const snapshot = summarizeIndiEntries({ actorId: current.actorId, profileSlug: current.profileSlug, entries });
+        const persisted = await persistBalanceSnapshot(snapshot);
+        return {
+          entry: { ...current, status: input.status, metadata: nextMetadata, effectiveAt: nextUpdatedAt },
+          balance: persisted
+        };
+      }
+    }
+  }
+
+  const runtime = await readRuntimeJson<IndiLedgerEntry>(LEDGER_FILE);
+  const index = runtime.findIndex((entry) => entry.id === input.id);
+  if (index < 0) throw new Error('INDI ledger entry not found.');
+  runtime[index] = {
+    ...runtime[index],
+    status: input.status,
+    metadata: { ...runtime[index].metadata, ...(input.metadata || {}) },
+    effectiveAt: nextUpdatedAt
+  };
+  await writeRuntimeJson(LEDGER_FILE, runtime);
+  const current = runtime[index];
+  const entries = await listIndiLedgerEntries({ actorId: current.actorId, profileSlug: current.profileSlug, limit: 300 });
+  const snapshot = summarizeIndiEntries({ actorId: current.actorId, profileSlug: current.profileSlug, entries });
+  const persisted = await persistBalanceSnapshot(snapshot);
+  return { entry: current, balance: persisted };
+}

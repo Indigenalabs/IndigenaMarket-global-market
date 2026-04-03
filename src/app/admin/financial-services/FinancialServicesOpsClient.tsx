@@ -5,7 +5,7 @@ import { fetchFinancialServicesDashboard, updateFinancialServiceRecord } from '@
 import type { FinancialServicesDashboard, InstantPayoutRequest, BnplApplication, TaxReportPurchase } from '@/app/lib/financialServices';
 
 export default function FinancialServicesOpsClient() {
-  const [data, setData] = useState<FinancialServicesDashboard>({ payouts: [], bnplApplications: [], taxReports: [] });
+  const [data, setData] = useState<FinancialServicesDashboard>({ payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [] });
   const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
@@ -14,26 +14,32 @@ export default function FinancialServicesOpsClient() {
 
   const summary = useMemo(() => ({
     payoutUsage: data.payouts.length,
+    withdrawalOps: data.indiWithdrawals.length,
+    royaltyQueue: data.royalties.filter((entry) => entry.status !== 'settled').length,
     escrowVolume: data.bnplApplications.reduce((sum, entry) => sum + entry.amount, 0),
     taxReportPurchases: data.taxReports.length
   }), [data]);
 
-  async function update(entity: 'payout' | 'bnpl' | 'tax-report', id: string, status: string) {
+  async function update(entity: 'payout' | 'indi-withdrawal' | 'royalty' | 'bnpl' | 'tax-report', id: string, status: string) {
     const json = await updateFinancialServiceRecord({ entity, id, status });
     if (entity === 'payout') setData((current) => ({ ...current, payouts: current.payouts.map((entry) => entry.id === id ? json.payout : entry) }));
+    if (entity === 'indi-withdrawal') setData((current) => ({ ...current, indiWithdrawals: current.indiWithdrawals.map((entry) => entry.id === id ? json.withdrawal : entry) }));
+    if (entity === 'royalty') setData((current) => ({ ...current, royalties: current.royalties.map((entry) => entry.id === id ? json.royalty : entry) }));
     if (entity === 'bnpl') setData((current) => ({ ...current, bnplApplications: current.bnplApplications.map((entry) => entry.id === id ? json.application : entry) }));
     if (entity === 'tax-report') setData((current) => ({ ...current, taxReports: current.taxReports.map((entry) => entry.id === id ? json.report : entry) }));
   }
 
   return (
     <section className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-5">
         <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Instant payout usage</p><p className="mt-2 text-2xl font-semibold text-white">{summary.payoutUsage}</p></div>
+        <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">INDI withdrawal ops</p><p className="mt-2 text-2xl font-semibold text-white">{summary.withdrawalOps}</p></div>
+        <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Royalty queue</p><p className="mt-2 text-2xl font-semibold text-white">{summary.royaltyQueue}</p></div>
         <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">BNPL / escrow volume</p><p className="mt-2 text-2xl font-semibold text-white">${summary.escrowVolume.toFixed(2)}</p></div>
         <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Tax report purchases</p><p className="mt-2 text-2xl font-semibold text-white">{summary.taxReportPurchases}</p></div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-5">
         <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
           <h2 className="text-lg font-semibold text-white">Instant payouts</h2>
           <div className="mt-4 space-y-3">
@@ -43,6 +49,36 @@ export default function FinancialServicesOpsClient() {
                 <p className="mt-1 text-xs text-gray-500">${entry.amount.toFixed(2)} gross · fee ${entry.feeAmount.toFixed(2)} · net ${entry.netAmount.toFixed(2)}</p>
                 <select value={entry.status} onChange={(e) => void update('payout', entry.id, e.target.value)} className="mt-3 rounded-xl border border-white/10 bg-[#111111] px-3 py-2 text-sm text-white outline-none">
                   {['requested', 'processing', 'paid', 'failed'].map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+          <h2 className="text-lg font-semibold text-white">INDI withdrawals</h2>
+          <div className="mt-4 space-y-3">
+            {data.indiWithdrawals.map((entry) => (
+              <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-sm font-semibold text-white">{entry.destinationLabel || entry.destinationType}</p>
+                <p className="mt-1 text-xs text-gray-500">{entry.actorId} · {entry.amount.toFixed(2)} INDI · net {entry.netAmount.toFixed(2)} · {entry.destinationType}</p>
+                <select value={entry.status} onChange={(e) => void update('indi-withdrawal', entry.id, e.target.value)} className="mt-3 rounded-xl border border-white/10 bg-[#111111] px-3 py-2 text-sm text-white outline-none">
+                  {['requested', 'queued', 'reviewing', 'processing', 'paid', 'failed', 'cancelled'].map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+          <h2 className="text-lg font-semibold text-white">Royalty ledger</h2>
+          <div className="mt-4 space-y-3">
+            {data.royalties.map((entry) => (
+              <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-sm font-semibold text-white">{entry.item}</p>
+                <p className="mt-1 text-xs text-gray-500">{entry.pillar} · gross {entry.grossAmount.toFixed(2)} · net {entry.creatorNetAmount.toFixed(2)}</p>
+                <select value={entry.status} onChange={(e) => void update('royalty', entry.id, e.target.value)} className="mt-3 rounded-xl border border-white/10 bg-[#111111] px-3 py-2 text-sm text-white outline-none">
+                  {['paid', 'pending_payout', 'settled'].map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
               </div>
             ))}
