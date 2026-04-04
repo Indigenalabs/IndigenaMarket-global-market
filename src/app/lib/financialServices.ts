@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { assertRuntimePersistenceAllowed } from '@/app/lib/runtimePersistence';
 import { listIndiWithdrawalRequests, updateIndiWithdrawalRequestStatus, type IndiWithdrawalRequest, type IndiWithdrawalStatus } from '@/app/lib/indiWithdrawalRequests';
-import { listFinanceLedgerEntriesByOrderId, updateFinanceLedgerEntryStatus, type FinanceLedgerEntry, type FinanceLedgerStatus } from '@/app/lib/financeLedger';
+import { listAllFinanceLedgerEntries, listFinanceLedgerEntriesByOrderId, updateFinanceLedgerEntryStatus, type FinanceLedgerEntry, type FinanceLedgerStatus } from '@/app/lib/financeLedger';
 import { listDigitalArtOrders, updateDigitalArtOrderStatus, type DigitalArtOrderRecord, type DigitalArtOrderStatus } from '@/app/lib/digitalArtOrders';
 
 export interface InstantPayoutRequest {
@@ -48,9 +48,14 @@ export interface FinancialServicesDashboard {
 }
 
 export interface FinancialOrderReconciliation {
+  settlementId: string;
+  settlementEntity: 'marketplace-order' | 'settlement-case';
   orderId: string;
   listingId: string;
   title: string;
+  pillar: string;
+  sourceType: string;
+  sourceReference: string;
   orderKind: 'primary' | 'resale';
   orderStatus: DigitalArtOrderStatus;
   amountPaid: number;
@@ -63,6 +68,7 @@ export interface FinancialOrderReconciliation {
   saleLedgerStatuses: FinanceLedgerStatus[];
   royaltyLedgerStatuses: FinanceLedgerStatus[];
   withdrawalStatuses: IndiWithdrawalStatus[];
+  linkedLedgerEntryIds: string[];
   createdAt: string;
 }
 
@@ -94,13 +100,19 @@ function buildOrderReconciliation(input: {
   royalties: FinanceLedgerEntry[];
   withdrawals: IndiWithdrawalRequest[];
 }) {
-  return input.orders.map((order) => {
+  const knownOrderIds = new Set(input.orders.map((order) => order.id));
+  const orderRows = input.orders.map((order) => {
     const linkedLedger = input.royalties.filter((entry) => String(entry.metadata?.orderId || '').trim() === order.id);
     const linkedWithdrawals = input.withdrawals.filter((entry) => [order.sellerActorId, order.creatorActorId].includes(entry.actorId));
     return {
+      settlementId: order.id,
+      settlementEntity: 'marketplace-order',
       orderId: order.id,
       listingId: order.listingId,
       title: order.title,
+      pillar: 'digital-arts',
+      sourceType: 'orderId',
+      sourceReference: order.id,
       orderKind: order.orderKind,
       orderStatus: order.status,
       amountPaid: order.amountPaid,
@@ -113,13 +125,100 @@ function buildOrderReconciliation(input: {
       saleLedgerStatuses: linkedLedger.filter((entry) => entry.type === 'sale').map((entry) => entry.status),
       royaltyLedgerStatuses: linkedLedger.filter((entry) => entry.type === 'royalty').map((entry) => entry.status),
       withdrawalStatuses: linkedWithdrawals.map((entry) => entry.status),
+      linkedLedgerEntryIds: linkedLedger.map((entry) => entry.id),
       createdAt: order.createdAt
     } satisfies FinancialOrderReconciliation;
   });
+
+  const grouped = new Map<string, { key: string; sourceType: string; entries: FinanceLedgerEntry[] }>();
+  for (const entry of input.royalties) {
+    const reference =
+      String(entry.metadata?.orderId || '').trim() ||
+      String(entry.metadata?.receiptId || '').trim() ||
+      String(entry.metadata?.bookingId || '').trim() ||
+      String(entry.metadata?.referenceId || '').trim();
+    if (!reference) continue;
+    const sourceType = String(entry.metadata?.orderId ? 'orderId' : entry.metadata?.receiptId ? 'receiptId' : entry.metadata?.bookingId ? 'bookingId' : 'referenceId');
+    if (sourceType === 'orderId' && knownOrderIds.has(reference)) continue;
+    const groupKey = `${sourceType}:${reference}`;
+    const current = grouped.get(groupKey);
+    if (current) {
+      current.entries.push(entry);
+    } else {
+      grouped.set(groupKey, { key: reference, sourceType, entries: [entry] });
+    }
+  }
+
+  const derivedRows = Array.from(grouped.values()).map((group) => {
+    const entries = [...group.entries].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+    const saleEntries = entries.filter((entry) => entry.type === 'sale');
+    const royaltyEntries = entries.filter((entry) => entry.type === 'royalty');
+    const actorIds = Array.from(new Set(entries.map((entry) => entry.actorId).filter(Boolean)));
+    const linkedWithdrawals = input.withdrawals.filter((entry) => actorIds.includes(entry.actorId));
+    const allStatuses = entries.map((entry) => entry.status);
+    const orderStatus: DigitalArtOrderStatus =
+      allStatuses.includes('disputed')
+        ? 'disputed'
+        : allStatuses.includes('refunded')
+          ? 'refunded'
+          : allStatuses.length > 0 && allStatuses.every((status) => status === 'settled')
+            ? 'settled'
+            : allStatuses.includes('pending_payout')
+              ? 'pending_settlement'
+              : 'captured';
+    const primaryEntry = saleEntries[0] || royaltyEntries[0] || entries[0];
+    return {
+      settlementId: group.key,
+      settlementEntity: 'settlement-case',
+      orderId: group.key,
+      listingId: String(primaryEntry.sourceId || group.key),
+      title: primaryEntry.item || `${primaryEntry.pillar} settlement`,
+      pillar: primaryEntry.pillar,
+      sourceType: group.sourceType,
+      sourceReference: group.key,
+      orderKind: 'primary',
+      orderStatus,
+      amountPaid: saleEntries.length > 0 ? saleEntries.reduce((sum, entry) => sum + entry.grossAmount, 0) : entries.reduce((sum, entry) => sum + entry.grossAmount, 0),
+      currency: String(primaryEntry.metadata?.currency || 'INDI'),
+      sellerActorId: saleEntries[0]?.actorId || primaryEntry.actorId,
+      creatorActorId: royaltyEntries[0]?.actorId || saleEntries[0]?.actorId || primaryEntry.actorId,
+      royaltyAmount: royaltyEntries.reduce((sum, entry) => sum + entry.creatorNetAmount, 0),
+      platformFeeAmount: entries.reduce((sum, entry) => sum + entry.platformFeeAmount, 0),
+      sellerNetAmount: saleEntries.reduce((sum, entry) => sum + entry.creatorNetAmount, 0),
+      saleLedgerStatuses: saleEntries.map((entry) => entry.status),
+      royaltyLedgerStatuses: royaltyEntries.map((entry) => entry.status),
+      withdrawalStatuses: linkedWithdrawals.map((entry) => entry.status),
+      linkedLedgerEntryIds: entries.map((entry) => entry.id),
+      createdAt: primaryEntry.createdAt
+    } satisfies FinancialOrderReconciliation;
+  });
+
+  return [...orderRows, ...derivedRows].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
 }
 
 export async function listFinancialServices() {
-  if (!isSupabaseServerConfigured()) return readRuntime();
+  const fallbackRoyalties = await listAllFinanceLedgerEntries();
+  const fallbackWithdrawals = await listIndiWithdrawalRequests({ actorId: '', profileSlug: '' });
+  const fallbackMarketplaceOrders = await listDigitalArtOrders({ includeAll: true });
+  if (!isSupabaseServerConfigured()) {
+    const runtime = await readRuntime();
+    const royalties = fallbackRoyalties.filter((entry) => ['sale', 'royalty'].includes(entry.type));
+    const indiWithdrawals = fallbackWithdrawals;
+    const marketplaceOrders = fallbackMarketplaceOrders;
+    return {
+      payouts: runtime.payouts,
+      bnplApplications: runtime.bnplApplications,
+      taxReports: runtime.taxReports,
+      indiWithdrawals,
+      royalties,
+      marketplaceOrders,
+      orderReconciliation: buildOrderReconciliation({
+        orders: marketplaceOrders,
+        royalties,
+        withdrawals: indiWithdrawals
+      })
+    };
+  }
   const supabase = createSupabaseServerClient();
   const [payouts, bnplApplications, taxReports, indiWithdrawals, royalties, marketplaceOrders] = await Promise.all([
     supabase.from('finance_instant_payout_requests').select('*').order('created_at', { ascending: false }),
@@ -151,8 +250,8 @@ export async function listFinancialServices() {
         updatedAt: String(row.updated_at || ''),
         completedAt: String(row.completed_at || '')
       }))
-    : await listIndiWithdrawalRequests({ actorId: '', profileSlug: '' });
-  const mappedRoyalties = !royalties.error && royalties.data
+    : fallbackWithdrawals;
+  const mappedRoyalties = !royalties.error && royalties.data && royalties.data.length > 0
     ? royalties.data.map((row: any) => ({
         id: String(row.id || ''),
         actorId: String(row.actor_id || ''),
@@ -174,7 +273,7 @@ export async function listFinancialServices() {
         metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? row.metadata : {},
         createdAt: String(row.created_at || '')
       }))
-    : [];
+    : fallbackRoyalties.filter((entry) => ['sale', 'royalty'].includes(entry.type));
   const mappedMarketplaceOrders = !marketplaceOrders.error && marketplaceOrders.data
     ? marketplaceOrders.data.map((row: any) => ({
         id: String(row.id || ''),
@@ -199,7 +298,7 @@ export async function listFinancialServices() {
         parentOrderId: String(row.payment_breakdown?.parentOrderId || ''),
         createdAt: String(row.created_at || '')
       }))
-    : await listDigitalArtOrders({ includeAll: true });
+    : fallbackMarketplaceOrders;
   return {
     payouts: (payouts.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, walletAddress: row.wallet_address, amount: Number(row.amount || 0), feeAmount: Number(row.fee_amount || 0), netAmount: Number(row.net_amount || 0), status: row.status, createdAt: row.created_at })),
     bnplApplications: (bnplApplications.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, orderId: row.order_id, amount: Number(row.amount || 0), partner: row.partner, feeAmount: Number(row.fee_amount || 0), status: row.status, createdAt: row.created_at })),
@@ -311,9 +410,10 @@ export async function updateMarketplaceOrderSettlement(id: string, status: Digit
   const updatedOrder = await updateDigitalArtOrderStatus({ id, status });
   const linkedEntries = await listFinanceLedgerEntriesByOrderId(id);
   const ledgerStatus = mapOrderStatusToFinanceStatus(status);
-  const updatedLedgerEntries = await Promise.all(
-    linkedEntries.map((entry) =>
-      updateFinanceLedgerEntryStatus({
+  const updatedLedgerEntries: FinanceLedgerEntry[] = [];
+  for (const entry of linkedEntries) {
+    updatedLedgerEntries.push(
+      await updateFinanceLedgerEntryStatus({
         id: entry.id,
         status: ledgerStatus,
         metadata: {
@@ -322,7 +422,40 @@ export async function updateMarketplaceOrderSettlement(id: string, status: Digit
           orderSettlementUpdatedAt: new Date().toISOString()
         }
       })
-    )
-  );
+    );
+  }
   return { order: updatedOrder, ledgerEntries: updatedLedgerEntries };
+}
+
+export async function updateSettlementCaseStatus(id: string, status: DigitalArtOrderStatus) {
+  const state = await listFinancialServices();
+  const settlementCase = state.orderReconciliation.find((entry) => entry.settlementId === id);
+  if (!settlementCase) throw new Error('Settlement case not found.');
+  if (settlementCase.settlementEntity === 'marketplace-order') {
+    return updateMarketplaceOrderSettlement(id, status);
+  }
+  const ledgerStatus = mapOrderStatusToFinanceStatus(status);
+  const updatedLedgerEntries: FinanceLedgerEntry[] = [];
+  for (const entryId of settlementCase.linkedLedgerEntryIds) {
+    updatedLedgerEntries.push(
+      await updateFinanceLedgerEntryStatus({
+        id: entryId,
+        status: ledgerStatus,
+        metadata: {
+          settlementCaseId: settlementCase.settlementId,
+          settlementCaseStatus: status,
+          settlementCaseUpdatedAt: new Date().toISOString()
+        }
+      })
+    );
+  }
+  return {
+    settlementCase: {
+      ...settlementCase,
+      orderStatus: status,
+      saleLedgerStatuses: updatedLedgerEntries.filter((entry) => entry.type === 'sale').map((entry) => entry.status),
+      royaltyLedgerStatuses: updatedLedgerEntries.filter((entry) => entry.type === 'royalty').map((entry) => entry.status)
+    },
+    ledgerEntries: updatedLedgerEntries
+  };
 }

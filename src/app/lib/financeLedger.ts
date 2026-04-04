@@ -202,6 +202,25 @@ export async function listFinanceLedgerEntries(profileSlug: string, actorId: str
   return fallbackTransactions.map((transaction) => transactionToLedgerEntry({ actorId, profileSlug, transaction }));
 }
 
+export async function listAllFinanceLedgerEntries() {
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const result = await supabase
+      .from('creator_finance_ledger')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    if (!result.error && result.data && result.data.length > 0) {
+      return result.data.map((row) => normalizeDbRow(row as Record<string, unknown>));
+    }
+    if (result.error && !shouldRetryLegacyLedgerWrite(result.error)) {
+      throw result.error;
+    }
+  }
+
+  return readRuntime();
+}
+
 export async function appendFinanceLedgerEntry(entry: FinanceLedgerEntry) {
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();

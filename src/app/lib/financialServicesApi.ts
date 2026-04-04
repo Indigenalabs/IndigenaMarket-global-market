@@ -27,7 +27,7 @@ export async function purchaseTaxReportApi(payload: { actorId: string; taxYear: 
   return (await res.json()).data.report as TaxReportPurchase;
 }
 
-export async function updateFinancialServiceRecord(payload: { entity: 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'bnpl' | 'tax-report'; id: string; status: string; note?: string; }) {
+export async function updateFinancialServiceRecord(payload: { entity: 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report'; id: string; status: string; note?: string; }) {
   const res = await fetchWithTimeout('/api/admin/financial-services', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   if (!res.ok) throw new Error(await parseApiError(res, 'Unable to update financial service record'));
   return await res.json();
