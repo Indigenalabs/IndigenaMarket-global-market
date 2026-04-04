@@ -4,6 +4,7 @@ import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestId
 import { calculateTransactionQuote } from '@/app/lib/monetization';
 import { resolveRequestPlanIds } from '@/app/lib/monetizationEntitlements';
 import { appendFinanceLedgerEntry } from '@/app/lib/financeLedger';
+import { createDigitalArtOrder, listDigitalArtOrders } from '@/app/lib/digitalArtOrders';
 
 type R = Record<string, unknown>;
 
@@ -70,7 +71,14 @@ function mapOrder(row: R) {
       buyerServiceFee: Number(paymentBreakdown.buyerServiceFee || 0),
       platformFee: Number(paymentBreakdown.platformFee || 0),
       buyerTotal: Number(paymentBreakdown.buyerTotal || 0),
-      creatorNet: Number(paymentBreakdown.creatorNet || 0)
+      creatorNet: Number(paymentBreakdown.creatorNet || 0),
+      sellerNet: Number(paymentBreakdown.sellerNet || paymentBreakdown.creatorNet || 0),
+      royaltyAmount: Number(paymentBreakdown.royaltyAmount || 0),
+      royaltyRate: Number(paymentBreakdown.royaltyRate || 0),
+      orderKind: String(paymentBreakdown.orderKind || 'primary'),
+      sellerActorId: String(paymentBreakdown.sellerActorId || row.creator_actor_id || ''),
+      originalCreatorActorId: String(paymentBreakdown.originalCreatorActorId || row.creator_actor_id || ''),
+      parentOrderId: String(paymentBreakdown.parentOrderId || '')
     },
     receiptId: String(row.receipt_id || ''),
     createdAt: String(row.created_at || new Date().toISOString())
@@ -99,19 +107,12 @@ async function list(req: NextRequest, isSearch = false) {
 }
 
 async function listOrders(req: NextRequest) {
-  if (!isSupabaseServerConfigured()) return NextResponse.json({ orders: [] });
-  const supabase = createSupabaseServerClient();
   const actorId = resolveRequestActorId(req);
   const wallet = resolveRequestWallet(req);
   const actorFilter = actorId !== 'guest' ? actorId : wallet;
   if (!actorFilter) return NextResponse.json({ orders: [] });
-  const { data, error } = await supabase
-    .from('digital_art_orders')
-    .select('*')
-    .or(`buyer_actor_id.eq.${actorFilter},buyer_wallet_address.eq.${actorFilter}`)
-    .order('created_at', { ascending: false });
-  if (error) return fail(error.message, 500);
-  return NextResponse.json({ orders: (data || []).map((row) => mapOrder(row as unknown as R)) });
+  const orders = await listDigitalArtOrders({ buyerActorId: actorFilter });
+  return NextResponse.json({ orders: orders.map((row) => mapOrder(row as unknown as R)) });
 }
 
 async function createBuyOrder(listingId: string, req: NextRequest, body: R) {
@@ -141,37 +142,35 @@ async function createBuyOrder(listingId: string, req: NextRequest, body: R) {
     memberPlanId
   });
 
-  const order: R = {
+  const order = await createDigitalArtOrder({
     id: `dao-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    listing_id: listingId,
-    buyer_actor_id: actor(req),
-    buyer_wallet_address: resolveRequestWallet(req) || String(body.buyerAddress || '').trim().toLowerCase() || null,
-    creator_actor_id: String(listing.creator_actor_id || ''),
+    listingId,
+    buyerActorId: actor(req),
+    buyerWalletAddress: resolveRequestWallet(req) || String(body.buyerAddress || '').trim().toLowerCase(),
+    creatorActorId: String(listing.creator_actor_id || ''),
+    sellerActorId: String(listing.creator_actor_id || ''),
     title: String(listing.title || ''),
-    amount_paid: quote.buyerTotal,
+    amountPaid: quote.buyerTotal,
     currency: String(listing.currency || body.currency || 'INDI'),
     status: 'captured',
-    receipt_id: `rcpt-${listingId}-${Date.now()}`,
-    payment_breakdown: {
-      subtotal: quote.subtotal,
-      buyerServiceFee: quote.buyerServiceFee,
-      platformFee: quote.platformFee,
-      buyerTotal: quote.buyerTotal,
-      creatorNet: quote.creatorNet
-    },
-    created_at: new Date().toISOString()
-  };
+    receiptId: `rcpt-${listingId}-${Date.now()}`,
+    orderKind: 'primary',
+    royaltyRate: 0,
+    royaltyAmount: 0,
+    sellerNetAmount: quote.creatorNet,
+    platformFeeAmount: quote.platformFee,
+    buyerServiceFeeAmount: quote.buyerServiceFee,
+    subtotalAmount: quote.subtotal,
+    buyerTotalAmount: quote.buyerTotal,
+    parentOrderId: '',
+    createdAt: new Date().toISOString()
+  });
 
-  if (isSupabaseServerConfigured()) {
-    const supabase = createSupabaseServerClient();
-    const { error } = await supabase.from('digital_art_orders').insert(order);
-    if (error) return fail(error.message, 500);
-  }
-  if (String(order.creator_actor_id || '')) {
+  if (String(order.creatorActorId || '')) {
     await appendFinanceLedgerEntry({
       id: `fin-ledger-${String(order.id)}`,
-      actorId: String(order.creator_actor_id || ''),
-      profileSlug: String(order.creator_actor_id || ''),
+      actorId: String(order.creatorActorId || ''),
+      profileSlug: String(order.creatorActorId || ''),
       pillar: 'digital-arts',
       type: 'sale',
       status: 'paid',
@@ -188,12 +187,209 @@ async function createBuyOrder(listingId: string, req: NextRequest, body: R) {
       sourceId: listingId,
       metadata: {
         currency: String(order.currency || body.currency || 'INDI'),
-        orderId: String(order.id)
+        orderId: String(order.id),
+        orderKind: 'primary'
       },
-      createdAt: String(order.created_at)
+      createdAt: String(order.createdAt)
     });
   }
-  return NextResponse.json({ success: true, order: mapOrder(order), feeBreakdown: order.payment_breakdown });
+  return NextResponse.json({
+    success: true,
+    order: mapOrder({
+      id: order.id,
+      listing_id: order.listingId,
+      buyer_actor_id: order.buyerActorId,
+      buyer_wallet_address: order.buyerWalletAddress,
+      creator_actor_id: order.creatorActorId,
+      title: order.title,
+      amount_paid: order.amountPaid,
+      currency: order.currency,
+      status: order.status,
+      receipt_id: order.receiptId,
+      payment_breakdown: {
+        subtotal: order.subtotalAmount,
+        buyerServiceFee: order.buyerServiceFeeAmount,
+        platformFee: order.platformFeeAmount,
+        buyerTotal: order.buyerTotalAmount,
+        creatorNet: order.sellerNetAmount,
+        sellerNet: order.sellerNetAmount,
+        orderKind: order.orderKind,
+        sellerActorId: order.sellerActorId,
+        originalCreatorActorId: order.creatorActorId
+      },
+      created_at: order.createdAt
+    }),
+    feeBreakdown: {
+      subtotal: order.subtotalAmount,
+      buyerServiceFee: order.buyerServiceFeeAmount,
+      platformFee: order.platformFeeAmount,
+      buyerTotal: order.buyerTotalAmount,
+      creatorNet: order.sellerNetAmount
+    }
+  });
+}
+
+function money(value: number) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+async function createResaleOrder(listingId: string, req: NextRequest, body: R) {
+  let listing: R | null = null;
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const { data } = await supabase.from('digital_art_listings').select('*').eq('id', listingId).maybeSingle();
+    listing = (data as R | null) || null;
+  }
+  if (!listing) {
+    listing = {
+      id: listingId,
+      title: String(body.title || 'Digital Art Listing'),
+      price: Number(body.amount || 0),
+      currency: String(body.currency || 'INDI'),
+      creator_actor_id: String(body.creatorAddress || body.originalCreatorActorId || '')
+    };
+  }
+
+  const subtotal = Number(body.amount || listing.price || 0);
+  if (!subtotal) return fail('Listing price is required');
+  const { creatorPlanId, memberPlanId } = await resolveRequestPlanIds(req, body);
+  const quote = calculateTransactionQuote({
+    pillar: 'digital-arts',
+    subtotal,
+    creatorPlanId,
+    memberPlanId
+  });
+
+  const sellerActorId = String(body.sellerActorId || body.ownerActorId || listing.creator_actor_id || '').trim().toLowerCase();
+  const originalCreatorActorId = String(body.originalCreatorActorId || listing.creator_actor_id || '').trim().toLowerCase();
+  if (!sellerActorId || !originalCreatorActorId) return fail('sellerActorId and original creator must be available for resale orders');
+  const royaltyRate = Math.max(0, Math.min(40, Number(body.royaltyRate || body.royaltyPercentage || 12)));
+  const royaltyAmount = money((quote.subtotal * royaltyRate) / 100);
+  const sellerNetAmount = money(Math.max(quote.creatorNet - royaltyAmount, 0));
+
+  const order = await createDigitalArtOrder({
+    id: `dao-resale-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    listingId,
+    buyerActorId: actor(req),
+    buyerWalletAddress: resolveRequestWallet(req) || String(body.buyerAddress || '').trim().toLowerCase(),
+    creatorActorId: originalCreatorActorId,
+    sellerActorId,
+    title: String(listing.title || body.title || 'Digital Art Resale'),
+    amountPaid: quote.buyerTotal,
+    currency: String(listing.currency || body.currency || 'INDI'),
+    status: 'captured',
+    receiptId: `rcpt-resale-${listingId}-${Date.now()}`,
+    orderKind: 'resale',
+    royaltyRate,
+    royaltyAmount,
+    sellerNetAmount,
+    platformFeeAmount: quote.platformFee,
+    buyerServiceFeeAmount: quote.buyerServiceFee,
+    subtotalAmount: quote.subtotal,
+    buyerTotalAmount: quote.buyerTotal,
+    parentOrderId: String(body.parentOrderId || ''),
+    createdAt: new Date().toISOString()
+  });
+
+  await appendFinanceLedgerEntry({
+    id: `fin-ledger-${String(order.id)}-seller`,
+    actorId: sellerActorId,
+    profileSlug: sellerActorId,
+    pillar: 'digital-arts',
+    type: 'sale',
+    status: 'pending_payout',
+    item: String(order.title || ''),
+    grossAmount: Number(quote.subtotal),
+    platformFeeAmount: Number(quote.platformFee),
+    processorFeeAmount: 0,
+    escrowFeeAmount: 0,
+    refundAmount: 0,
+    disputeAmount: 0,
+    creatorNetAmount: sellerNetAmount,
+    disputeReason: '',
+    sourceType: 'resale',
+    sourceId: listingId,
+    metadata: {
+      currency: String(order.currency || body.currency || 'INDI'),
+      orderId: String(order.id),
+      orderKind: 'resale',
+      sellerActorId,
+      originalCreatorActorId,
+      royaltyAmount,
+      royaltyRate
+    },
+    createdAt: String(order.createdAt)
+  });
+
+  await appendFinanceLedgerEntry({
+    id: `fin-ledger-${String(order.id)}-royalty`,
+    actorId: originalCreatorActorId,
+    profileSlug: originalCreatorActorId,
+    pillar: 'digital-arts',
+    type: 'royalty',
+    status: 'pending_payout',
+    item: String(order.title || ''),
+    grossAmount: royaltyAmount,
+    platformFeeAmount: 0,
+    processorFeeAmount: 0,
+    escrowFeeAmount: 0,
+    refundAmount: 0,
+    disputeAmount: 0,
+    creatorNetAmount: royaltyAmount,
+    disputeReason: '',
+    sourceType: 'resale',
+    sourceId: listingId,
+    metadata: {
+      currency: String(order.currency || body.currency || 'INDI'),
+      orderId: String(order.id),
+      orderKind: 'resale',
+      sellerActorId,
+      originalCreatorActorId,
+      royaltyAmount,
+      royaltyRate
+    },
+    createdAt: String(order.createdAt)
+  });
+
+  return NextResponse.json({
+    success: true,
+    order: mapOrder({
+      id: order.id,
+      listing_id: order.listingId,
+      buyer_actor_id: order.buyerActorId,
+      buyer_wallet_address: order.buyerWalletAddress,
+      creator_actor_id: order.creatorActorId,
+      title: order.title,
+      amount_paid: order.amountPaid,
+      currency: order.currency,
+      status: order.status,
+      receipt_id: order.receiptId,
+      payment_breakdown: {
+        subtotal: order.subtotalAmount,
+        buyerServiceFee: order.buyerServiceFeeAmount,
+        platformFee: order.platformFeeAmount,
+        buyerTotal: order.buyerTotalAmount,
+        creatorNet: order.sellerNetAmount,
+        sellerNet: order.sellerNetAmount,
+        royaltyAmount,
+        royaltyRate,
+        orderKind: 'resale',
+        sellerActorId,
+        originalCreatorActorId,
+        parentOrderId: order.parentOrderId
+      },
+      created_at: order.createdAt
+    }),
+    feeBreakdown: {
+      subtotal: order.subtotalAmount,
+      buyerServiceFee: order.buyerServiceFeeAmount,
+      platformFee: order.platformFeeAmount,
+      buyerTotal: order.buyerTotalAmount,
+      sellerNet: order.sellerNetAmount,
+      royaltyAmount,
+      royaltyRate
+    }
+  }, { status: 201 });
 }
 
 async function event(body: R) {
@@ -232,6 +428,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   const body = (await req.json().catch(() => ({}))) as R;
   if (a === 'analytics' && b === 'event') return event(body);
   if (a === 'listings' && b && c === 'buy') return createBuyOrder(b, req, body);
+  if (a === 'listings' && b && c === 'resale') return createResaleOrder(b, req, body);
   if (a === 'listings' && b && ['bid', 'offers', 'watchlist', 'share', 'report'].includes(c || '')) {
     await event({ event: `listing_${c}`, listingId: b, actorId: actor(req), metadata: body });
     return NextResponse.json({ success: true });

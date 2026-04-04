@@ -3,7 +3,8 @@ import path from 'node:path';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { assertRuntimePersistenceAllowed } from '@/app/lib/runtimePersistence';
 import { listIndiWithdrawalRequests, updateIndiWithdrawalRequestStatus, type IndiWithdrawalRequest, type IndiWithdrawalStatus } from '@/app/lib/indiWithdrawalRequests';
-import { updateFinanceLedgerEntryStatus, type FinanceLedgerEntry, type FinanceLedgerStatus } from '@/app/lib/financeLedger';
+import { listFinanceLedgerEntriesByOrderId, updateFinanceLedgerEntryStatus, type FinanceLedgerEntry, type FinanceLedgerStatus } from '@/app/lib/financeLedger';
+import { listDigitalArtOrders, updateDigitalArtOrderStatus, type DigitalArtOrderRecord, type DigitalArtOrderStatus } from '@/app/lib/digitalArtOrders';
 
 export interface InstantPayoutRequest {
   id: string;
@@ -42,6 +43,27 @@ export interface FinancialServicesDashboard {
   taxReports: TaxReportPurchase[];
   indiWithdrawals: IndiWithdrawalRequest[];
   royalties: FinanceLedgerEntry[];
+  marketplaceOrders: DigitalArtOrderRecord[];
+  orderReconciliation: FinancialOrderReconciliation[];
+}
+
+export interface FinancialOrderReconciliation {
+  orderId: string;
+  listingId: string;
+  title: string;
+  orderKind: 'primary' | 'resale';
+  orderStatus: DigitalArtOrderStatus;
+  amountPaid: number;
+  currency: string;
+  sellerActorId: string;
+  creatorActorId: string;
+  royaltyAmount: number;
+  platformFeeAmount: number;
+  sellerNetAmount: number;
+  saleLedgerStatuses: FinanceLedgerStatus[];
+  royaltyLedgerStatuses: FinanceLedgerStatus[];
+  withdrawalStatuses: IndiWithdrawalStatus[];
+  createdAt: string;
 }
 
 const RUNTIME_DIR = path.join(process.cwd(), '.runtime');
@@ -51,7 +73,7 @@ async function ensureDir() { assertRuntimePersistenceAllowed('financial services
 async function readRuntime(): Promise<FinancialServicesDashboard> {
   await ensureDir();
   const raw = await fs.readFile(FILE, 'utf8').catch(() => '');
-  if (!raw) return { payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [] };
+  if (!raw) return { payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [], marketplaceOrders: [], orderReconciliation: [] };
   try {
     const parsed = JSON.parse(raw) as Partial<FinancialServicesDashboard>;
     return {
@@ -59,72 +81,137 @@ async function readRuntime(): Promise<FinancialServicesDashboard> {
       bnplApplications: Array.isArray(parsed.bnplApplications) ? parsed.bnplApplications : [],
       taxReports: Array.isArray(parsed.taxReports) ? parsed.taxReports : [],
       indiWithdrawals: Array.isArray(parsed.indiWithdrawals) ? parsed.indiWithdrawals : [],
-      royalties: Array.isArray(parsed.royalties) ? parsed.royalties : []
+      royalties: Array.isArray(parsed.royalties) ? parsed.royalties : [],
+      marketplaceOrders: Array.isArray(parsed.marketplaceOrders) ? parsed.marketplaceOrders : [],
+      orderReconciliation: Array.isArray(parsed.orderReconciliation) ? parsed.orderReconciliation : []
     };
-  } catch { return { payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [] }; }
+  } catch { return { payouts: [], bnplApplications: [], taxReports: [], indiWithdrawals: [], royalties: [], marketplaceOrders: [], orderReconciliation: [] }; }
 }
 async function writeRuntime(data: FinancialServicesDashboard) { await ensureDir(); await fs.writeFile(FILE, JSON.stringify(data, null, 2), 'utf8'); }
+
+function buildOrderReconciliation(input: {
+  orders: DigitalArtOrderRecord[];
+  royalties: FinanceLedgerEntry[];
+  withdrawals: IndiWithdrawalRequest[];
+}) {
+  return input.orders.map((order) => {
+    const linkedLedger = input.royalties.filter((entry) => String(entry.metadata?.orderId || '').trim() === order.id);
+    const linkedWithdrawals = input.withdrawals.filter((entry) => [order.sellerActorId, order.creatorActorId].includes(entry.actorId));
+    return {
+      orderId: order.id,
+      listingId: order.listingId,
+      title: order.title,
+      orderKind: order.orderKind,
+      orderStatus: order.status,
+      amountPaid: order.amountPaid,
+      currency: order.currency,
+      sellerActorId: order.sellerActorId,
+      creatorActorId: order.creatorActorId,
+      royaltyAmount: order.royaltyAmount,
+      platformFeeAmount: order.platformFeeAmount,
+      sellerNetAmount: order.sellerNetAmount,
+      saleLedgerStatuses: linkedLedger.filter((entry) => entry.type === 'sale').map((entry) => entry.status),
+      royaltyLedgerStatuses: linkedLedger.filter((entry) => entry.type === 'royalty').map((entry) => entry.status),
+      withdrawalStatuses: linkedWithdrawals.map((entry) => entry.status),
+      createdAt: order.createdAt
+    } satisfies FinancialOrderReconciliation;
+  });
+}
 
 export async function listFinancialServices() {
   if (!isSupabaseServerConfigured()) return readRuntime();
   const supabase = createSupabaseServerClient();
-  const [payouts, bnplApplications, taxReports, indiWithdrawals, royalties] = await Promise.all([
+  const [payouts, bnplApplications, taxReports, indiWithdrawals, royalties, marketplaceOrders] = await Promise.all([
     supabase.from('finance_instant_payout_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('finance_bnpl_applications').select('*').order('created_at', { ascending: false }),
     supabase.from('finance_tax_report_purchases').select('*').order('created_at', { ascending: false }),
     supabase.from('indi_withdrawal_requests').select('*').order('requested_at', { ascending: false }),
-    supabase.from('creator_finance_ledger').select('*').eq('entry_type', 'royalty').order('created_at', { ascending: false })
+    supabase.from('creator_finance_ledger').select('*').in('entry_type', ['sale', 'royalty']).order('created_at', { ascending: false }),
+    supabase.from('digital_art_orders').select('*').order('created_at', { ascending: false }).limit(100)
   ]);
+  const mappedWithdrawals = !indiWithdrawals.error && indiWithdrawals.data
+    ? indiWithdrawals.data.map((row: any) => ({
+        id: String(row.id || ''),
+        actorId: String(row.actor_id || ''),
+        profileSlug: String(row.profile_slug || ''),
+        userProfileId: String(row.user_profile_id || ''),
+        walletAccountId: String(row.wallet_account_id || ''),
+        amount: Number(row.amount || 0),
+        feeAmount: Number(row.fee_amount || 0),
+        netAmount: Number(row.net_amount || 0),
+        currency: 'INDI' as const,
+        destinationType: (row.destination_type || 'manual_review') as IndiWithdrawalRequest['destinationType'],
+        destinationLabel: String(row.destination_label || ''),
+        destinationDetails: row.destination_details || {},
+        status: row.status || 'requested',
+        note: String(row.note || ''),
+        ledgerEntryId: String(row.ledger_entry_id || ''),
+        referenceId: String(row.reference_id || ''),
+        requestedAt: String(row.requested_at || ''),
+        updatedAt: String(row.updated_at || ''),
+        completedAt: String(row.completed_at || '')
+      }))
+    : await listIndiWithdrawalRequests({ actorId: '', profileSlug: '' });
+  const mappedRoyalties = !royalties.error && royalties.data
+    ? royalties.data.map((row: any) => ({
+        id: String(row.id || ''),
+        actorId: String(row.actor_id || ''),
+        profileSlug: String(row.profile_slug || ''),
+        pillar: String(row.pillar || 'digital-arts') as FinanceLedgerEntry['pillar'],
+        type: String(row.entry_type || 'sale') as FinanceLedgerEntry['type'],
+        status: String(row.status || 'paid') as FinanceLedgerStatus,
+        item: String(row.item || ''),
+        grossAmount: Number(row.gross_amount || 0),
+        platformFeeAmount: Number(row.platform_fee_amount || 0),
+        processorFeeAmount: Number(row.processor_fee_amount || 0),
+        escrowFeeAmount: Number(row.escrow_fee_amount || 0),
+        refundAmount: Number(row.refund_amount || 0),
+        disputeAmount: Number(row.dispute_amount || 0),
+        creatorNetAmount: Number(row.creator_net_amount || 0),
+        disputeReason: String(row.dispute_reason || ''),
+        sourceType: String(row.source_type || ''),
+        sourceId: String(row.source_id || ''),
+        metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? row.metadata : {},
+        createdAt: String(row.created_at || '')
+      }))
+    : [];
+  const mappedMarketplaceOrders = !marketplaceOrders.error && marketplaceOrders.data
+    ? marketplaceOrders.data.map((row: any) => ({
+        id: String(row.id || ''),
+        listingId: String(row.listing_id || ''),
+        buyerActorId: String(row.buyer_actor_id || ''),
+        buyerWalletAddress: String(row.buyer_wallet_address || ''),
+        creatorActorId: String(row.creator_actor_id || ''),
+        sellerActorId: String(row.payment_breakdown?.sellerActorId || row.creator_actor_id || ''),
+        title: String(row.title || ''),
+        amountPaid: Number(row.amount_paid || 0),
+        currency: String(row.currency || 'INDI'),
+        status: String(row.status || 'captured') as DigitalArtOrderStatus,
+        receiptId: String(row.receipt_id || ''),
+        orderKind: String(row.payment_breakdown?.orderKind || 'primary') as DigitalArtOrderRecord['orderKind'],
+        royaltyRate: Number(row.payment_breakdown?.royaltyRate || 0),
+        royaltyAmount: Number(row.payment_breakdown?.royaltyAmount || 0),
+        sellerNetAmount: Number(row.payment_breakdown?.sellerNet || row.payment_breakdown?.creatorNet || 0),
+        platformFeeAmount: Number(row.payment_breakdown?.platformFee || 0),
+        buyerServiceFeeAmount: Number(row.payment_breakdown?.buyerServiceFee || 0),
+        subtotalAmount: Number(row.payment_breakdown?.subtotal || row.amount_paid || 0),
+        buyerTotalAmount: Number(row.payment_breakdown?.buyerTotal || row.amount_paid || 0),
+        parentOrderId: String(row.payment_breakdown?.parentOrderId || ''),
+        createdAt: String(row.created_at || '')
+      }))
+    : await listDigitalArtOrders({ includeAll: true });
   return {
     payouts: (payouts.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, walletAddress: row.wallet_address, amount: Number(row.amount || 0), feeAmount: Number(row.fee_amount || 0), netAmount: Number(row.net_amount || 0), status: row.status, createdAt: row.created_at })),
     bnplApplications: (bnplApplications.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, orderId: row.order_id, amount: Number(row.amount || 0), partner: row.partner, feeAmount: Number(row.fee_amount || 0), status: row.status, createdAt: row.created_at })),
     taxReports: (taxReports.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, taxYear: Number(row.tax_year || new Date().getUTCFullYear()), feeAmount: Number(row.fee_amount || 25), status: row.status, createdAt: row.created_at })),
-    indiWithdrawals: !indiWithdrawals.error && indiWithdrawals.data
-      ? indiWithdrawals.data.map((row: any) => ({
-          id: String(row.id || ''),
-          actorId: String(row.actor_id || ''),
-          profileSlug: String(row.profile_slug || ''),
-          userProfileId: String(row.user_profile_id || ''),
-          walletAccountId: String(row.wallet_account_id || ''),
-          amount: Number(row.amount || 0),
-          feeAmount: Number(row.fee_amount || 0),
-          netAmount: Number(row.net_amount || 0),
-          currency: 'INDI',
-          destinationType: row.destination_type || 'manual_review',
-          destinationLabel: String(row.destination_label || ''),
-          destinationDetails: row.destination_details || {},
-          status: row.status || 'requested',
-          note: String(row.note || ''),
-          ledgerEntryId: String(row.ledger_entry_id || ''),
-          referenceId: String(row.reference_id || ''),
-          requestedAt: String(row.requested_at || ''),
-          updatedAt: String(row.updated_at || ''),
-          completedAt: String(row.completed_at || '')
-        }))
-      : await listIndiWithdrawalRequests({ actorId: '', profileSlug: '' }),
-    royalties: !royalties.error && royalties.data
-      ? royalties.data.map((row: any) => ({
-          id: String(row.id || ''),
-          actorId: String(row.actor_id || ''),
-          profileSlug: String(row.profile_slug || ''),
-          pillar: String(row.pillar || 'digital-arts') as FinanceLedgerEntry['pillar'],
-          type: 'royalty',
-          status: String(row.status || 'paid') as FinanceLedgerStatus,
-          item: String(row.item || ''),
-          grossAmount: Number(row.gross_amount || 0),
-          platformFeeAmount: Number(row.platform_fee_amount || 0),
-          processorFeeAmount: Number(row.processor_fee_amount || 0),
-          escrowFeeAmount: Number(row.escrow_fee_amount || 0),
-          refundAmount: Number(row.refund_amount || 0),
-          disputeAmount: Number(row.dispute_amount || 0),
-          creatorNetAmount: Number(row.creator_net_amount || 0),
-          disputeReason: String(row.dispute_reason || ''),
-          sourceType: String(row.source_type || ''),
-          sourceId: String(row.source_id || ''),
-          metadata: row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? row.metadata : {},
-          createdAt: String(row.created_at || '')
-        }))
-      : []
+    indiWithdrawals: mappedWithdrawals,
+    royalties: mappedRoyalties,
+    marketplaceOrders: mappedMarketplaceOrders,
+    orderReconciliation: buildOrderReconciliation({
+      orders: mappedMarketplaceOrders,
+      royalties: mappedRoyalties,
+      withdrawals: mappedWithdrawals
+    })
   };
 }
 
@@ -210,4 +297,32 @@ export async function updateRoyaltyLedgerStatus(id: string, status: FinanceLedge
       royaltyStatusUpdatedAt: new Date().toISOString()
     }
   });
+}
+
+function mapOrderStatusToFinanceStatus(status: DigitalArtOrderStatus): FinanceLedgerStatus {
+  if (status === 'settled') return 'settled';
+  if (status === 'pending_settlement') return 'pending_payout';
+  if (status === 'refunded') return 'refunded';
+  if (status === 'disputed') return 'disputed';
+  return 'paid';
+}
+
+export async function updateMarketplaceOrderSettlement(id: string, status: DigitalArtOrderStatus) {
+  const updatedOrder = await updateDigitalArtOrderStatus({ id, status });
+  const linkedEntries = await listFinanceLedgerEntriesByOrderId(id);
+  const ledgerStatus = mapOrderStatusToFinanceStatus(status);
+  const updatedLedgerEntries = await Promise.all(
+    linkedEntries.map((entry) =>
+      updateFinanceLedgerEntryStatus({
+        id: entry.id,
+        status: ledgerStatus,
+        metadata: {
+          ...(entry.metadata || {}),
+          orderSettlementStatus: status,
+          orderSettlementUpdatedAt: new Date().toISOString()
+        }
+      })
+    )
+  );
+  return { order: updatedOrder, ledgerEntries: updatedLedgerEntries };
 }

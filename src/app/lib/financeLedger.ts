@@ -267,6 +267,28 @@ export async function appendFinanceLedgerEntry(entry: FinanceLedgerEntry) {
   return entry;
 }
 
+export async function listFinanceLedgerEntriesByOrderId(orderId: string) {
+  const target = String(orderId || '').trim();
+  if (!target) return [] as FinanceLedgerEntry[];
+
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const result = await supabase
+      .from('creator_finance_ledger')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (!result.error && result.data) {
+      return result.data
+        .map((row) => normalizeDbRow(row as Record<string, unknown>))
+        .filter((entry) => String(entry.metadata?.orderId || '').trim() === target);
+    }
+  }
+
+  const runtime = await readRuntime();
+  return runtime.filter((entry) => String(entry.metadata?.orderId || '').trim() === target);
+}
+
 export async function updateFinanceLedgerEntryStatus(input: {
   id: string;
   status: FinanceLedgerStatus;

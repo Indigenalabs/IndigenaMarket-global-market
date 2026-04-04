@@ -136,6 +136,21 @@ export async function buyListing(listingId: string, buyerAddress = 'demo-wallet'
   return postJson(`/digital-arts/listings/${listingId}/buy`, { buyerAddress });
 }
 
+export async function buyResaleListing(
+  listingId: string,
+  payload: {
+    buyerAddress?: string;
+    sellerActorId: string;
+    originalCreatorActorId: string;
+    amount?: number;
+    royaltyRate?: number;
+    parentOrderId?: string;
+    title?: string;
+  }
+) {
+  return postJson(`/digital-arts/listings/${listingId}/resale`, payload as unknown as Record<string, unknown>);
+}
+
 export async function bidListing(listingId: string, amount: number, bidderAddress = 'demo-wallet') {
   return postJson(`/digital-arts/listings/${listingId}/bid`, { bidderAddress, amount });
 }
