@@ -31,6 +31,36 @@ export async function fetchPlatformAccount(slug: string) {
   };
 }
 
+export async function updatePlatformAccountMembersApi(
+  slug: string,
+  payload:
+    | {
+        action: 'upsert-member';
+        actorId: string;
+        displayName: string;
+        role: PlatformAccountDashboard['members'][number]['role'];
+        permissions?: string[];
+      }
+    | {
+        action: 'remove-member';
+        memberId?: string;
+        actorId?: string;
+      }
+) {
+  const res = await fetchWithTimeout(`/api/platform-accounts/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(await parseApiError(res, 'Unable to update community representatives'));
+  return (await res.json()).data as {
+    account: PlatformAccountRecord;
+    members: PlatformAccountDashboard['members'];
+    verification: PlatformAccountDashboard['verifications'][number] | null;
+    splitRules: RevenueSplitRuleRecord[];
+  };
+}
+
 export async function createPlatformAccountApi(payload: {
   slug: string;
   displayName: string;

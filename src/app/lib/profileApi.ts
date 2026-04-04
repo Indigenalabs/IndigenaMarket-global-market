@@ -263,6 +263,7 @@ export async function updateProfilePresentation(payload: {
 
 export async function updateProfileOfferingsBulk(payload: {
   slug: string;
+  accountSlug?: string;
   offeringIds: string[];
   operation:
     | 'activate'
@@ -288,6 +289,7 @@ export async function updateProfileOfferingsBulk(payload: {
 
 export async function updateProfileOffering(payload: {
   slug: string;
+  accountSlug?: string;
   offeringId: string;
   title: string;
   blurb: string;
@@ -410,6 +412,7 @@ export async function createProfileSupportRequest(payload: {
 
 export async function createQuickProfileDraft(payload: {
   slug?: string;
+  accountSlug?: string;
   pillar: 'freelancing' | 'language-heritage' | 'land-food' | 'advocacy-legal' | 'materials-tools';
   fields: Record<string, string>;
 }) {

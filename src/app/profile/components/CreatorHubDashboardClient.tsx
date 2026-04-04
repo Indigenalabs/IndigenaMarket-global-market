@@ -684,6 +684,16 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
       })),
     [nationStorefrontAccounts]
   );
+  const communityPublishingAccountSlug =
+    activePlatformAccount && ['community', 'tribe', 'collective'].includes(activePlatformAccount.accountType)
+      ? activePlatformAccount.slug
+      : '';
+  const withStorefrontContext = (href: string) => {
+    const scopedHref = communityPublishingAccountSlug
+      ? `${href}${href.includes('?') ? '&' : '?'}accountSlug=${encodeURIComponent(communityPublishingAccountSlug)}`
+      : href;
+    return withSimpleMode(scopedHref);
+  };
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
   const launchpadBuilderHref = useMemo(() => {
     const params = new URLSearchParams();
@@ -805,27 +815,27 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         title: 'Commerce lanes',
         detail: 'Best for storefront inventory and products that need pricing, stock, or merchandising.',
         actions: [
-          { label: 'Digital art', href: withSimpleMode('/digital-arts/add?returnTo=/creator-hub') },
-          { label: 'Physical items', href: withSimpleMode('/physical-items/add?returnTo=/creator-hub') },
-          { label: 'Materials & tools', href: withSimpleMode('/creator-hub/new/materials-tools') }
+          { label: 'Digital art', href: withStorefrontContext('/digital-arts/add?returnTo=/creator-hub') },
+          { label: 'Physical items', href: withStorefrontContext('/physical-items/add?returnTo=/creator-hub') },
+          { label: 'Materials & tools', href: withStorefrontContext('/creator-hub/new/materials-tools') }
         ]
       },
       {
         title: 'Service lanes',
         detail: 'Use these for bookings, consulting, and professional or cultural service work.',
         actions: [
-          { label: 'Freelancing', href: withSimpleMode('/creator-hub/new/freelancing') },
-          { label: 'Tourism', href: withSimpleMode('/cultural-tourism/operator?focus=create&returnTo=/creator-hub') },
-          { label: 'Advocacy', href: withSimpleMode('/creator-hub/new/advocacy-legal') }
+          { label: 'Freelancing', href: withStorefrontContext('/creator-hub/new/freelancing') },
+          { label: 'Tourism', href: withStorefrontContext('/cultural-tourism/operator?focus=create&returnTo=/creator-hub') },
+          { label: 'Advocacy', href: withStorefrontContext('/creator-hub/new/advocacy-legal') }
         ]
       },
       {
         title: 'Learning and heritage',
         detail: 'For curriculum, archives, language resources, and stewardship-based publishing.',
         actions: [
-          { label: 'Courses', href: withSimpleMode('/courses/create?returnTo=/creator-hub') },
-          { label: 'Language', href: withSimpleMode('/creator-hub/new/language-heritage') },
-          { label: 'Land & food', href: withSimpleMode('/creator-hub/new/land-food') }
+          { label: 'Courses', href: withStorefrontContext('/courses/create?returnTo=/creator-hub') },
+          { label: 'Language', href: withStorefrontContext('/creator-hub/new/language-heritage') },
+          { label: 'Land & food', href: withStorefrontContext('/creator-hub/new/land-food') }
         ]
       },
       {
@@ -833,11 +843,11 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         detail: 'Use Launchpad for direct fundraising and Seva for platform-reviewed sacred fund requests.',
         actions: [
           { label: 'Launchpad', href: launchpadBuilderHref },
-          { label: 'Seva request', href: withSimpleMode('/seva?focus=request&returnTo=/creator-hub') }
+          { label: 'Seva request', href: withStorefrontContext('/seva?focus=request&returnTo=/creator-hub') }
         ]
       }
     ],
-    [launchpadBuilderHref, withSimpleMode]
+    [launchpadBuilderHref, withStorefrontContext]
   );
   const marketingCampaignGroups = useMemo(
     () => ({
@@ -1117,6 +1127,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
       await requireWalletAction('apply bulk listing changes');
       const result = await updateProfileOfferingsBulk({
         slug,
+        accountSlug: communityPublishingAccountSlug || undefined,
         offeringIds: selectedOfferingIds,
         operation
       });
@@ -1148,6 +1159,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
       await requireWalletAction('save in-hub listing changes');
       const result = await updateProfileOffering({
         slug,
+        accountSlug: communityPublishingAccountSlug || undefined,
         offeringId: selectedStudioOffering.id,
         ...studioOfferingDraft
       });
@@ -2231,12 +2243,12 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 <p className="text-sm leading-7 text-gray-300">
                   Seva stays platform-governed. Start the request from Creator Hub, then the platform review team decides whether it becomes a live Sacred Fund project.
                 </p>
-                <Link href={withSimpleMode(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
+                <Link href={withStorefrontContext(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
                   Open Seva request flow
                 </Link>
               </div>
             ) : EMBEDDED_CREATE_PILLARS.includes(resolveLauncherPillar(selectedCreateConfig.title) as (typeof EMBEDDED_CREATE_PILLARS)[number]) ? (
-              <QuickCreateClient pillar={resolveLauncherPillar(selectedCreateConfig.title)} embedded simpleMode={workspaceMode === 'simple'} />
+              <QuickCreateClient pillar={resolveLauncherPillar(selectedCreateConfig.title)} embedded simpleMode={workspaceMode === 'simple'} accountSlug={communityPublishingAccountSlug || undefined} />
             ) : (
               <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
                 <p className="text-sm leading-7 text-gray-300">
@@ -2246,7 +2258,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                   <StatusRow title="Full pillar editor" detail="Opens the native publishing experience with Creator Hub return routing." actionLabel="Ready" />
                   <StatusRow title="Creator-first path" detail="Best for deeper media uploads, scheduling, pricing, and pillar-specific settings." actionLabel="Advanced" />
                 </div>
-                <Link href={withSimpleMode(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
+                <Link href={withStorefrontContext(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
                   {workspaceMode === 'simple' ? 'Keep going on the full page' : 'Open full workflow'}
                 </Link>
               </div>

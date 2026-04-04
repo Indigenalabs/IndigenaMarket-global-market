@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
-import { requireCreatorProfileOwner, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
+import { requireCreatorProfileOwner, requirePlatformAccountAccess, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
+import { buildCommunityPublishingMetadata } from '@/app/lib/communityPublishing';
 import { canCreateListing } from '@/app/lib/creatorEntitlements';
 import { getActorEntitlements } from '@/app/lib/subscriptionState';
 import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
@@ -21,6 +22,7 @@ type PillarKey =
 
 type Body = {
   slug?: string;
+  accountSlug?: string;
   pillar: PillarKey;
   fields: Record<string, string>;
 };
@@ -255,6 +257,17 @@ export async function POST(req: NextRequest) {
     body.fields['Listing title'] ||
     'Untitled draft';
 
+  let publishingAccount = null as Awaited<ReturnType<typeof requirePlatformAccountAccess>> | null;
+  if ((body.accountSlug || '').trim()) {
+    const accountAccess = await requirePlatformAccountAccess(req, String(body.accountSlug).trim(), {
+      guestMessage: 'Sign in to create drafts for a community storefront.',
+      forbiddenMessage: 'You are not allowed to create drafts for this community storefront.',
+      requiredPermissions: ['publish']
+    });
+    if ('error' in accountAccess) return accountAccess.error;
+    publishingAccount = accountAccess;
+  }
+
   if (!isSupabaseServerConfigured()) {
     const id = `${body.pillar}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const href =
@@ -267,7 +280,10 @@ export async function POST(req: NextRequest) {
             : body.pillar === 'advocacy-legal'
               ? '/advocacy-legal/dashboard/legal-professional?focus=create&returnTo=/creator-hub'
               : '/materials-tools/supplier-dashboard?focus=create&returnTo=/creator-hub';
-    const offering = profileOfferingForDraft(id, body.pillar, title, 'Created from Creator Hub', 'Draft', href);
+    const offering = {
+      ...profileOfferingForDraft(id, body.pillar, title, 'Created from Creator Hub', 'Draft', href),
+      metadata: buildCommunityPublishingMetadata([], publishingAccount?.account || null)
+    };
     appendCreatorProfileOffering(slug, offering, {
       type: 'listing',
       title: `Created draft: ${title}`,
@@ -278,21 +294,25 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await insertDraft({ ...body, slug }, owner.actorId);
+  const offering = {
+    ...result.offering,
+    metadata: buildCommunityPublishingMetadata(result.offering.metadata, publishingAccount?.account || null)
+  };
   const supabase = createSupabaseServerClient();
   await supabase.from('creator_profile_offerings').insert({
     id: result.id,
     profile_slug: slug,
-    title: result.offering.title,
-    pillar: result.offering.pillar,
-    pillar_label: result.offering.pillarLabel,
-    icon: result.offering.icon,
-    offering_type: result.offering.type,
-    price_label: result.offering.priceLabel,
-    image_url: result.offering.image,
-    href: result.offering.href,
-    blurb: result.offering.blurb,
-    status: result.offering.status,
-    metadata: result.offering.metadata,
+    title: offering.title,
+    pillar: offering.pillar,
+    pillar_label: offering.pillarLabel,
+    icon: offering.icon,
+    offering_type: offering.type,
+    price_label: offering.priceLabel,
+    image_url: offering.image,
+    href: offering.href,
+    blurb: offering.blurb,
+    status: offering.status,
+    metadata: offering.metadata,
     created_at: new Date().toISOString()
   });
   await supabase.from('creator_profile_activities').insert({
@@ -305,5 +325,5 @@ export async function POST(req: NextRequest) {
     created_at: new Date().toISOString()
   });
 
-  return NextResponse.json({ data: { ok: true, draftId: result.id, href: result.href, offering: result.offering } }, { status: 201 });
+  return NextResponse.json({ data: { ok: true, draftId: result.id, href: result.href, offering } }, { status: 201 });
 }

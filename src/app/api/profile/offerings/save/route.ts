@@ -1,5 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { requireCreatorProfileOwner, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
+import { requireCreatorProfileOwner, requirePlatformAccountAccess, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
+import { buildCommunityPublishingMetadata } from '@/app/lib/communityPublishing';
+import type { PlatformAccountRecord } from '@/app/lib/platformAccounts';
 import { updateCreatorProfileOfferingDetails, type ProfileOffering } from '@/app/profile/data/profileShowcase';
 
 function asText(value: unknown, fallback = '') {
@@ -12,6 +14,7 @@ export async function POST(req: NextRequest) {
 
   const slug = asText(body.slug);
   const offeringId = asText(body.offeringId);
+  const accountSlug = asText(body.accountSlug);
   if (!slug || !offeringId) {
     return NextResponse.json({ message: 'Profile slug and offering id are required.' }, { status: 400 });
   }
@@ -26,6 +29,19 @@ export async function POST(req: NextRequest) {
   const status = asText(body.status);
   const featured = Boolean(body.featured);
   const requiresVerifiedSeller = ['Active', 'Bookable', 'Enrolling', 'Waitlist'].includes(status) || featured;
+  let publishingAccount: { account: PlatformAccountRecord } | null = null;
+  if (accountSlug) {
+    const accountAccess = await requirePlatformAccountAccess(req, accountSlug, {
+      guestMessage: 'Sign in to publish for a community storefront.',
+      forbiddenMessage: 'You are not allowed to publish for this community storefront.',
+      requiredPermissions: ['publish']
+    });
+    if ('error' in accountAccess) return accountAccess.error;
+    publishingAccount = accountAccess;
+    if (requiresVerifiedSeller && accountAccess.account.verificationStatus !== 'approved') {
+      return NextResponse.json({ message: 'This community storefront must be approved before you can publish listings under it.' }, { status: 403 });
+    }
+  }
   if (requiresVerifiedSeller) {
     const sellerGate = await requireVerifiedSellerForActor(owner.actorId, {
       forbiddenMessage: 'Verification approval is required before you can publish or feature a listing.'
@@ -33,7 +49,18 @@ export async function POST(req: NextRequest) {
     if ('error' in sellerGate) return sellerGate.error;
   }
 
+  const fallbackMetadata = owner.fallbackProfile.offerings.find((entry) => entry.id === offeringId)?.metadata || [];
+  let nextMetadata = buildCommunityPublishingMetadata(fallbackMetadata, publishingAccount?.account || null);
+
   if (owner.supabase) {
+    const { data: existingOffering } = await owner.supabase
+      .from('creator_profile_offerings')
+      .select('metadata')
+      .eq('id', offeringId)
+      .eq('profile_slug', slug)
+      .maybeSingle();
+    nextMetadata = buildCommunityPublishingMetadata((existingOffering?.metadata as string[] | undefined) || fallbackMetadata, publishingAccount?.account || null);
+
     const { error } = await owner.supabase
       .from('creator_profile_offerings')
       .update({
@@ -51,6 +78,7 @@ export async function POST(req: NextRequest) {
         availability_label: asText(body.availabilityLabel),
         availability_tone: (['default', 'success', 'warning', 'danger'].includes(asText(body.availabilityTone)) ? asText(body.availabilityTone) : 'default'),
         featured: Boolean(body.featured),
+        metadata: nextMetadata,
         updated_at: new Date().toISOString()
       })
       .eq('id', offeringId)
@@ -75,7 +103,8 @@ export async function POST(req: NextRequest) {
     launchWindowEndsAt: asText(body.launchWindowEndsAt),
     availabilityLabel: asText(body.availabilityLabel),
     availabilityTone: (['default', 'success', 'warning', 'danger'].includes(asText(body.availabilityTone)) ? asText(body.availabilityTone) : 'default') as 'default' | 'success' | 'warning' | 'danger',
-    featured: Boolean(body.featured)
+    featured: Boolean(body.featured),
+    metadata: nextMetadata
   });
 
   return NextResponse.json({ data: { ok: true, profile } });
