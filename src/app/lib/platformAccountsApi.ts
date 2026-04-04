@@ -11,9 +11,10 @@ import type {
   SplitRuleType
 } from '@/app/lib/platformAccounts';
 
-export async function fetchPlatformAccounts(input?: { accountTypes?: PlatformAccountType[] }) {
+export async function fetchPlatformAccounts(input?: { accountTypes?: PlatformAccountType[]; mine?: boolean }) {
   const params = new URLSearchParams();
   if (input?.accountTypes?.length) params.set('accountTypes', input.accountTypes.join(','));
+  if (input?.mine) params.set('mine', 'true');
   const res = await fetchWithTimeout(`/api/platform-accounts${params.toString() ? `?${params.toString()}` : ''}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseApiError(res, 'Unable to load platform accounts'));
   return ((await res.json()).data || []) as PlatformAccountRecord[];

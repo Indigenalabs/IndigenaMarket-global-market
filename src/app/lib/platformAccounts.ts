@@ -545,10 +545,25 @@ export async function listPlatformAccountDashboard(): Promise<PlatformAccountDas
   return dashboard;
 }
 
-export async function listPlatformAccounts(filter?: { accountTypes?: PlatformAccountType[] }) {
+export async function listPlatformAccounts(filter?: { accountTypes?: PlatformAccountType[]; actorId?: string }) {
   const dashboard = await listPlatformAccountDashboard();
   const allowed = filter?.accountTypes;
-  return allowed?.length ? dashboard.accounts.filter((entry) => allowed.includes(entry.accountType)) : dashboard.accounts;
+  const actorId = String(filter?.actorId || '').trim().toLowerCase();
+  const memberAccountIds = actorId
+    ? new Set(
+        dashboard.members
+          .filter((entry) => entry.actorId.trim().toLowerCase() === actorId)
+          .map((entry) => entry.accountId)
+      )
+    : null;
+
+  const visibleAccounts = dashboard.accounts.filter((entry) => {
+    if (allowed?.length && !allowed.includes(entry.accountType)) return false;
+    if (!actorId) return true;
+    return memberAccountIds?.has(entry.id) || entry.representativeActorIds.some((candidate) => candidate.trim().toLowerCase() === actorId);
+  });
+
+  return visibleAccounts;
 }
 
 export async function getPlatformAccountBySlug(slug: string) {

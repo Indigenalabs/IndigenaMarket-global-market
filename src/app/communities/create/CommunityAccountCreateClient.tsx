@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPlatformAccountApi } from '@/app/lib/platformAccountsApi';
+import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
 
 export default function CommunityAccountCreateClient() {
   const router = useRouter();
@@ -17,10 +18,30 @@ export default function CommunityAccountCreateClient() {
     story: '',
     payoutWallet: '',
     authorityProof: '',
-    communityReferences: ''
+    communityReferences: '',
+    actorDisplayName: ''
   });
   const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [identityLabel, setIdentityLabel] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAccountSessionMe()
+      .then((account) => {
+        if (!account || cancelled) return;
+        setIdentityLabel(account.displayName || account.email || '');
+        setForm((state) => ({
+          ...state,
+          payoutWallet: state.payoutWallet || account.walletAddress || '',
+          actorDisplayName: state.actorDisplayName || account.displayName || account.email || ''
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,7 +59,8 @@ export default function CommunityAccountCreateClient() {
         story: form.story,
         payoutWallet: form.payoutWallet,
         authorityProof: form.authorityProof,
-        communityReferences: form.communityReferences.split('\n').map((entry) => entry.trim()).filter(Boolean)
+        communityReferences: form.communityReferences.split('\n').map((entry) => entry.trim()).filter(Boolean),
+        actorDisplayName: form.actorDisplayName
       });
       router.push(`/communities/${result.account.slug}`);
     } catch (error) {
@@ -48,12 +70,32 @@ export default function CommunityAccountCreateClient() {
     }
   }
 
+  function updateDisplayName(value: string) {
+    const safeName = value;
+    setForm((state) => {
+      const nextSlug = state.slug.trim()
+        ? state.slug
+        : safeName
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .replace(/-+/g, '-');
+      return { ...state, displayName: safeName, slug: nextSlug };
+    });
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-5 rounded-[28px] border border-white/10 bg-[#111111] p-6 text-white">
+      <div className="rounded-[22px] border border-[#d4af37]/20 bg-[#d4af37]/10 p-4 text-sm text-[#f1dec0]">
+        {identityLabel
+          ? `You are applying as ${identityLabel}. This account will become the first representative on the new community storefront.`
+          : 'Sign in first if you want this page linked to your managed wallet and creator identity automatically.'}
+      </div>
       <div className="grid gap-5 md:grid-cols-2">
         <label className="space-y-2 text-sm">
           <span className="text-gray-300">Community name</span>
-          <input value={form.displayName} onChange={(e) => setForm((state) => ({ ...state, displayName: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" required />
+          <input value={form.displayName} onChange={(e) => updateDisplayName(e.target.value)} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" required />
         </label>
         <label className="space-y-2 text-sm">
           <span className="text-gray-300">Slug</span>
@@ -78,6 +120,10 @@ export default function CommunityAccountCreateClient() {
         <label className="space-y-2 text-sm">
           <span className="text-gray-300">Treasury wallet</span>
           <input value={form.payoutWallet} onChange={(e) => setForm((state) => ({ ...state, payoutWallet: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" placeholder="xrpl:rCommunityTreasury" />
+        </label>
+        <label className="space-y-2 text-sm">
+          <span className="text-gray-300">Lead representative name</span>
+          <input value={form.actorDisplayName} onChange={(e) => setForm((state) => ({ ...state, actorDisplayName: e.target.value }))} className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" placeholder="Representative or coordinator name" />
         </label>
       </div>
 

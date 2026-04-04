@@ -477,12 +477,12 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
 
   useEffect(() => {
     let cancelled = false;
-    fetchPlatformAccounts()
+    fetchPlatformAccounts({ accountTypes: ['community', 'tribe', 'collective'], mine: true })
       .then((data) => {
         if (cancelled) return;
         setPlatformAccounts(data);
-        if (!data.some((entry) => entry.slug === activeAccountSlug)) {
-          setActiveAccountSlug(data[0]?.slug || slug);
+        if (activeAccountSlug !== slug && !data.some((entry) => entry.slug === activeAccountSlug)) {
+          setActiveAccountSlug(slug);
         }
       })
       .catch((error) => {
@@ -633,17 +633,56 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
     profile.offerings.find((entry) => entry.id === selectedPromotionOfferId) ?? profile.offerings[0] ?? null;
   const selectedPlacement =
     MARKETING_PLACEMENTS.find((placement) => placement.id === selectedPlacementId) ?? MARKETING_PLACEMENTS[0] ?? null;
-  const activePlatformAccount = useMemo(
-    () => platformAccounts.find((entry) => entry.slug === activeAccountSlug) || platformAccounts.find((entry) => entry.slug === slug) || null,
-    [activeAccountSlug, platformAccounts, slug]
-  );
   const soloStorefrontAccount = useMemo(
-    () => platformAccounts.find((entry) => entry.accountType === 'artist' && entry.slug === slug) || platformAccounts.find((entry) => entry.accountType === 'artist') || null,
-    [platformAccounts, slug]
+    () =>
+      ({
+        id: `solo-${profile.slug}`,
+        slug,
+        displayName: profile.displayName,
+        description: profile.bioShort,
+        accountType: 'artist',
+        location: profile.location,
+        nation: profile.nation,
+        storefrontHeadline: profile.bioShort,
+        verificationStatus: 'approved',
+        treasuryLabel: 'Direct creator payouts',
+        supportUrl: `/profile/${slug}`,
+        payoutWallet: '',
+        avatar: profile.avatar,
+        banner: profile.cover,
+        story: profile.bioLong || profile.bioShort,
+        featuredOfferingIds: profile.offerings.slice(0, 3).map((offering) => offering.id),
+        representativeActorIds: [],
+        createdAt: '',
+        updatedAt: ''
+      }) satisfies PlatformAccountRecord,
+    [profile.avatar, profile.bioLong, profile.bioShort, profile.cover, profile.displayName, profile.location, profile.nation, profile.offerings, profile.slug, slug]
   );
   const nationStorefrontAccounts = useMemo(
     () => platformAccounts.filter((entry) => ['community', 'tribe', 'collective'].includes(entry.accountType)),
     [platformAccounts]
+  );
+  const activePlatformAccount = useMemo(
+    () => {
+      if (activeAccountSlug === slug) return soloStorefrontAccount;
+      return nationStorefrontAccounts.find((entry) => entry.slug === activeAccountSlug) || soloStorefrontAccount;
+    },
+    [activeAccountSlug, nationStorefrontAccounts, slug, soloStorefrontAccount]
+  );
+  const communityStorefrontCards = useMemo(
+    () =>
+      nationStorefrontAccounts.map((account) => ({
+        ...account,
+        reviewLabel:
+          account.verificationStatus === 'approved'
+            ? 'Verified community seller'
+            : account.verificationStatus === 'pending'
+              ? 'Waiting on governance review'
+              : account.verificationStatus === 'rejected'
+                ? 'Needs follow-up before selling'
+                : 'Draft review state'
+      })),
+    [nationStorefrontAccounts]
   );
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
   const launchpadBuilderHref = useMemo(() => {
@@ -1683,6 +1722,58 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 ) : null}
               </div>
               {accountFeedback ? <p className="mt-3 text-sm text-[#f3deb1]">{accountFeedback}</p> : null}
+              <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Your represented community storefronts</p>
+                    <p className="mt-2 text-sm text-gray-300">
+                      These are the nation and community pages you can currently operate from Creator Hub.
+                    </p>
+                  </div>
+                  <Link href="/communities/create" className="rounded-full border border-white/10 px-4 py-2 text-sm text-white hover:border-[#d4af37]/35">
+                    Add another community page
+                  </Link>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {communityStorefrontCards.length > 0 ? (
+                    communityStorefrontCards.map((account) => (
+                      <div key={account.id} className="rounded-[20px] border border-white/10 bg-[#111111] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">{account.displayName}</p>
+                            <p className="mt-1 text-xs text-gray-400">
+                              {account.accountType} | {account.nation || 'No nation label yet'}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-[#d4af37]">
+                            {account.verificationStatus}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-sm text-gray-300">{account.reviewLabel}</p>
+                        <p className="mt-2 text-sm text-white/70">{account.treasuryLabel}</p>
+                        <div className="mt-4 flex flex-wrap gap-2 text-sm">
+                          <button
+                            onClick={() => setActiveAccountSlug(account.slug)}
+                            className="rounded-full bg-[#d4af37] px-4 py-2 font-semibold text-black hover:bg-[#f4d370]"
+                          >
+                            Work in this storefront
+                          </button>
+                          <Link href={`/communities/${account.slug}`} className="rounded-full border border-white/10 px-4 py-2 text-white hover:border-[#d4af37]/35">
+                            Open page
+                          </Link>
+                          <Link href={`/communities/${account.slug}/verification`} className="rounded-full border border-white/10 px-4 py-2 text-white hover:border-[#d4af37]/35">
+                            Verification
+                          </Link>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[20px] border border-dashed border-white/10 bg-[#111111] p-4 text-sm text-gray-400 md:col-span-2">
+                      No community storefronts are linked to your current identity yet. Create one when you are ready to operate on behalf of a nation, tribe, or collective.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
