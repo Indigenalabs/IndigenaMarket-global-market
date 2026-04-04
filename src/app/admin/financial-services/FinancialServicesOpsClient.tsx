@@ -10,7 +10,14 @@ import {
   isAdminSessionError,
   updateFinancialServiceRecord
 } from '@/app/lib/financialServicesApi';
-import { buildFinancialAuditHistory, buildFinancialReconciliationReport, filterFinancialAuditHistory, filterFinancialReconciliation } from '@/app/lib/financialServicesPresentation';
+import {
+  buildFinancialAuditHistory,
+  buildFinancialReconciliationReport,
+  buildPayoutAuditHistory,
+  buildPayoutReconciliationReport,
+  filterFinancialAuditHistory,
+  filterFinancialReconciliation
+} from '@/app/lib/financialServicesPresentation';
 import type { FinancialOrderReconciliation, FinancialServicesDashboard } from '@/app/lib/financialServices';
 
 type FinancialEntity = 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report';
@@ -79,6 +86,10 @@ export default function FinancialServicesOpsClient() {
   const [selectedReportPresetId, setSelectedReportPresetId] = useState('');
   const [payoutStartDate, setPayoutStartDate] = useState('');
   const [payoutEndDate, setPayoutEndDate] = useState('');
+  const [payoutReportQueueFilter, setPayoutReportQueueFilter] = useState<'all' | 'instant-payouts' | 'indi-withdrawals'>('all');
+  const [payoutReportStatusFilter, setPayoutReportStatusFilter] = useState('all');
+  const [payoutReportStartDate, setPayoutReportStartDate] = useState('');
+  const [payoutReportEndDate, setPayoutReportEndDate] = useState('');
   const [royaltyStartDate, setRoyaltyStartDate] = useState('');
   const [royaltyEndDate, setRoyaltyEndDate] = useState('');
 
@@ -215,6 +226,20 @@ export default function FinancialServicesOpsClient() {
 
   const reportJsonUrl = useMemo(() => getFinancialServicesReportUrl('json', reportFilters), [reportFilters]);
   const reportCsvUrl = useMemo(() => getFinancialServicesReportUrl('csv', reportFilters), [reportFilters]);
+  const payoutReportFilters = useMemo(
+    () => ({
+      view: 'payouts' as const,
+      queue: payoutReportQueueFilter,
+      status: payoutReportStatusFilter,
+      startDate: payoutReportStartDate,
+      endDate: payoutReportEndDate
+    }),
+    [payoutReportEndDate, payoutReportQueueFilter, payoutReportStartDate, payoutReportStatusFilter]
+  );
+  const payoutReportRows = useMemo(() => buildPayoutReconciliationReport(data, payoutReportFilters), [data, payoutReportFilters]);
+  const payoutAuditRows = useMemo(() => buildPayoutAuditHistory(data, payoutReportFilters), [data, payoutReportFilters]);
+  const payoutReportJsonUrl = useMemo(() => getFinancialServicesReportUrl('json', payoutReportFilters), [payoutReportFilters]);
+  const payoutReportCsvUrl = useMemo(() => getFinancialServicesReportUrl('csv', payoutReportFilters), [payoutReportFilters]);
 
   async function update(entity: FinancialEntity, id: string, status: string) {
     let json;
@@ -686,6 +711,116 @@ export default function FinancialServicesOpsClient() {
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-gray-400">{entry.note} • {entry.actorId} • {entry.occurredAt}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Payout reconciliation</h2>
+            <p className="mt-1 text-sm text-gray-400">Review instant payout and withdrawal queue movement, then export payout-specific report and audit history slices.</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href={payoutReportJsonUrl}
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white transition hover:border-[#d4af37]/40 hover:text-[#f3deb1]"
+            >
+              Open payout JSON
+            </a>
+            <a
+              href={payoutReportCsvUrl}
+              className="rounded-xl border border-[#d4af37]/30 px-4 py-2 text-sm text-[#f3deb1] transition hover:bg-[#d4af37]/10"
+            >
+              Export payout CSV
+            </a>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Payout queue</span>
+            <select
+              value={payoutReportQueueFilter}
+              onChange={(event) => setPayoutReportQueueFilter(event.target.value as typeof payoutReportQueueFilter)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            >
+              <option value="all">All payout queues</option>
+              <option value="instant-payouts">Instant payouts</option>
+              <option value="indi-withdrawals">INDI withdrawals</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Payout status</span>
+            <select
+              value={payoutReportStatusFilter}
+              onChange={(event) => setPayoutReportStatusFilter(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            >
+              <option value="all">All statuses</option>
+              <option value="requested">Requested</option>
+              <option value="queued">Queued</option>
+              <option value="reviewing">Reviewing</option>
+              <option value="processing">Processing</option>
+              <option value="paid">Paid</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">From date</span>
+            <input
+              type="date"
+              value={payoutReportStartDate}
+              onChange={(event) => setPayoutReportStartDate(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">To date</span>
+            <input
+              type="date"
+              value={payoutReportEndDate}
+              onChange={(event) => setPayoutReportEndDate(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            />
+          </label>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {payoutReportRows.map((row) => (
+            <div key={`${row.queue}-${row.status}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{row.queue}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{row.requestCount} {row.status}</p>
+              <p className="mt-2 text-sm text-gray-300">Gross {row.grossAmount.toFixed(2)}</p>
+              <p className="mt-1 text-xs text-gray-500">Fees {row.feeAmount.toFixed(2)} • Net {row.netAmount.toFixed(2)}</p>
+            </div>
+          ))}
+          {payoutReportRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 p-4 text-sm text-gray-400">
+              No payout report rows match the current payout filters.
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-gray-300">Payout audit history</h3>
+            <p className="text-xs text-gray-500">{payoutAuditRows.length} entries</p>
+          </div>
+          <div className="mt-3 space-y-2">
+            {payoutAuditRows.slice(0, 10).map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{entry.destination}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.queue} • {entry.sourceReference} • {entry.actorId}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-white">{entry.netAmount.toFixed(2)} {entry.currency}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.status}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-400">{entry.note} • gross {entry.amount.toFixed(2)} • fee {entry.feeAmount.toFixed(2)} • {entry.occurredAt}</p>
               </div>
             ))}
           </div>

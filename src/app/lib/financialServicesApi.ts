@@ -4,7 +4,10 @@ import { buildApiUrl, fetchWithTimeout, parseApiError } from '@/app/lib/apiClien
 import type { FinancialServicesDashboard, InstantPayoutRequest, BnplApplication, TaxReportPurchase } from '@/app/lib/financialServices';
 
 export type FinancialReportQuery = {
+  view?: 'reconciliation' | 'payouts';
   pillar?: string;
+  queue?: string;
+  status?: string;
   startDate?: string;
   endDate?: string;
 };
@@ -65,7 +68,10 @@ export function isAdminSessionError(error: unknown) {
 export function getFinancialServicesReportUrl(format: 'json' | 'csv', query: FinancialReportQuery = {}) {
   return buildApiUrl('/admin/financial-services/report', {
     format,
+    view: query.view,
     pillar: query.pillar && query.pillar !== 'all' ? query.pillar : undefined,
+    queue: query.queue && query.queue !== 'all' ? query.queue : undefined,
+    status: query.status && query.status !== 'all' ? query.status : undefined,
     startDate: query.startDate,
     endDate: query.endDate
   });

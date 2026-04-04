@@ -59,6 +59,15 @@ export interface FinancialReconciliationReportRow {
   disputedCount: number;
 }
 
+export interface FinancialPayoutReportRow {
+  queue: 'instant-payouts' | 'indi-withdrawals';
+  status: string;
+  requestCount: number;
+  grossAmount: number;
+  feeAmount: number;
+  netAmount: number;
+}
+
 export interface FinancialAuditHistoryEntry {
   id: string;
   entity: 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report';
@@ -69,6 +78,21 @@ export interface FinancialAuditHistoryEntry {
   actorId: string;
   sourceReference: string;
   amount: number;
+  currency: string;
+  note: string;
+  occurredAt: string;
+}
+
+export interface FinancialPayoutAuditHistoryEntry {
+  id: string;
+  queue: 'instant-payouts' | 'indi-withdrawals';
+  status: string;
+  actorId: string;
+  destination: string;
+  sourceReference: string;
+  amount: number;
+  feeAmount: number;
+  netAmount: number;
   currency: string;
   note: string;
   occurredAt: string;

@@ -1,9 +1,18 @@
-import type { FinancialOrderReconciliation, FinancialReconciliationReportRow, FinancialServicesDashboard, FinancialAuditHistoryEntry } from '@/app/lib/financialServices';
+import type {
+  FinancialOrderReconciliation,
+  FinancialReconciliationReportRow,
+  FinancialServicesDashboard,
+  FinancialAuditHistoryEntry,
+  FinancialPayoutAuditHistoryEntry,
+  FinancialPayoutReportRow
+} from '@/app/lib/financialServices';
 
 export interface FinancialReportFilters {
   pillar?: string;
   startDate?: string;
   endDate?: string;
+  queue?: string;
+  status?: string;
 }
 
 function normalizeDate(value: string | undefined) {
@@ -126,6 +135,111 @@ export function buildFinancialAuditHistory(data: FinancialServicesDashboard): Fi
   }));
 
   return [...payoutEntries, ...withdrawalEntries, ...royaltyEntries, ...settlementEntries]
+    .sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)))
+    .slice(0, 200);
+}
+
+export function buildPayoutReconciliationReport(
+  data: Pick<FinancialServicesDashboard, 'payouts' | 'indiWithdrawals'>,
+  filters: FinancialReportFilters = {}
+): FinancialPayoutReportRow[] {
+  const grouped = new Map<string, FinancialPayoutReportRow>();
+  const queueFilter = String(filters.queue || '').trim();
+  const statusFilter = String(filters.status || '').trim();
+
+  for (const entry of data.payouts) {
+    if (queueFilter && queueFilter !== 'all' && queueFilter !== 'instant-payouts') continue;
+    if (statusFilter && statusFilter !== 'all' && entry.status !== statusFilter) continue;
+    if (!withinDateRange(entry.createdAt, filters)) continue;
+    const key = `instant-payouts:${entry.status}`;
+    const current = grouped.get(key) || {
+      queue: 'instant-payouts' as const,
+      status: entry.status,
+      requestCount: 0,
+      grossAmount: 0,
+      feeAmount: 0,
+      netAmount: 0
+    };
+    current.requestCount += 1;
+    current.grossAmount += entry.amount;
+    current.feeAmount += entry.feeAmount;
+    current.netAmount += entry.netAmount;
+    grouped.set(key, current);
+  }
+
+  for (const entry of data.indiWithdrawals) {
+    if (queueFilter && queueFilter !== 'all' && queueFilter !== 'indi-withdrawals') continue;
+    if (statusFilter && statusFilter !== 'all' && entry.status !== statusFilter) continue;
+    if (!withinDateRange(entry.completedAt || entry.updatedAt || entry.requestedAt, filters)) continue;
+    const key = `indi-withdrawals:${entry.status}`;
+    const current = grouped.get(key) || {
+      queue: 'indi-withdrawals' as const,
+      status: entry.status,
+      requestCount: 0,
+      grossAmount: 0,
+      feeAmount: 0,
+      netAmount: 0
+    };
+    current.requestCount += 1;
+    current.grossAmount += entry.amount;
+    current.feeAmount += entry.feeAmount;
+    current.netAmount += entry.netAmount;
+    grouped.set(key, current);
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => right.netAmount - left.netAmount);
+}
+
+export function buildPayoutAuditHistory(
+  data: Pick<FinancialServicesDashboard, 'payouts' | 'indiWithdrawals'>,
+  filters: FinancialReportFilters = {}
+): FinancialPayoutAuditHistoryEntry[] {
+  const queueFilter = String(filters.queue || '').trim();
+  const statusFilter = String(filters.status || '').trim();
+
+  const payoutEntries: FinancialPayoutAuditHistoryEntry[] = data.payouts
+    .filter((entry) => {
+      if (queueFilter && queueFilter !== 'all' && queueFilter !== 'instant-payouts') return false;
+      if (statusFilter && statusFilter !== 'all' && entry.status !== statusFilter) return false;
+      return withinDateRange(entry.createdAt, filters);
+    })
+    .map((entry) => ({
+      id: `payout-audit-${entry.id}`,
+      queue: 'instant-payouts',
+      status: entry.status,
+      actorId: entry.actorId,
+      destination: entry.walletAddress,
+      sourceReference: entry.id,
+      amount: entry.amount,
+      feeAmount: entry.feeAmount,
+      netAmount: entry.netAmount,
+      currency: 'USD',
+      note: 'Instant payout lifecycle update',
+      occurredAt: entry.createdAt
+    }));
+
+  const withdrawalEntries: FinancialPayoutAuditHistoryEntry[] = data.indiWithdrawals
+    .filter((entry) => {
+      if (queueFilter && queueFilter !== 'all' && queueFilter !== 'indi-withdrawals') return false;
+      if (statusFilter && statusFilter !== 'all' && entry.status !== statusFilter) return false;
+      return withinDateRange(entry.completedAt || entry.updatedAt || entry.requestedAt, filters);
+    })
+    .map((entry) => ({
+      id: `withdrawal-audit-${entry.id}`,
+      queue: 'indi-withdrawals',
+      status: entry.status,
+      actorId: entry.actorId,
+      destination: entry.destinationLabel || entry.destinationType,
+      sourceReference: entry.referenceId || entry.id,
+      amount: entry.amount,
+      feeAmount: entry.feeAmount,
+      netAmount: entry.netAmount,
+      currency: entry.currency,
+      note: entry.note || 'Withdrawal lifecycle update',
+      occurredAt: entry.completedAt || entry.updatedAt || entry.requestedAt
+    }));
+
+  return [...payoutEntries, ...withdrawalEntries]
     .sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)))
     .slice(0, 200);
 }
