@@ -1,5 +1,34 @@
 import type { FinancialOrderReconciliation, FinancialReconciliationReportRow, FinancialServicesDashboard, FinancialAuditHistoryEntry } from '@/app/lib/financialServices';
 
+export interface FinancialReportFilters {
+  pillar?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+function normalizeDate(value: string | undefined) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.length >= 10 ? text.slice(0, 10) : text;
+}
+
+function withinDateRange(value: string, filters: FinancialReportFilters) {
+  const occurredDate = normalizeDate(value);
+  const startDate = normalizeDate(filters.startDate);
+  const endDate = normalizeDate(filters.endDate);
+  if (startDate && occurredDate && occurredDate < startDate) return false;
+  if (endDate && occurredDate && occurredDate > endDate) return false;
+  return true;
+}
+
+export function filterFinancialReconciliation(rows: FinancialOrderReconciliation[], filters: FinancialReportFilters = {}) {
+  const pillar = String(filters.pillar || '').trim();
+  return rows.filter((row) => {
+    if (pillar && pillar !== 'all' && row.pillar !== pillar) return false;
+    return withinDateRange(row.createdAt, filters);
+  });
+}
+
 export function buildFinancialReconciliationReport(rows: FinancialOrderReconciliation[]): FinancialReconciliationReportRow[] {
   const grouped = new Map<string, FinancialReconciliationReportRow>();
   for (const row of rows) {
@@ -99,4 +128,12 @@ export function buildFinancialAuditHistory(data: FinancialServicesDashboard): Fi
   return [...payoutEntries, ...withdrawalEntries, ...royaltyEntries, ...settlementEntries]
     .sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)))
     .slice(0, 200);
+}
+
+export function filterFinancialAuditHistory(entries: FinancialAuditHistoryEntry[], filters: FinancialReportFilters = {}) {
+  const pillar = String(filters.pillar || '').trim();
+  return entries.filter((entry) => {
+    if (pillar && pillar !== 'all' && entry.pillar !== pillar) return false;
+    return withinDateRange(entry.occurredAt, filters);
+  });
 }

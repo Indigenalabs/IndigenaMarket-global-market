@@ -1,8 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchFinancialServicesDashboard, updateFinancialServiceRecord } from '@/app/lib/financialServicesApi';
-import { buildFinancialAuditHistory, buildFinancialReconciliationReport } from '@/app/lib/financialServicesPresentation';
+import {
+  clearAdminSession,
+  clearAdminSessionLocalState,
+  establishAdminSession,
+  fetchFinancialServicesDashboard,
+  getFinancialServicesReportUrl,
+  isAdminSessionError,
+  updateFinancialServiceRecord
+} from '@/app/lib/financialServicesApi';
+import { buildFinancialAuditHistory, buildFinancialReconciliationReport, filterFinancialAuditHistory, filterFinancialReconciliation } from '@/app/lib/financialServicesPresentation';
 import type { FinancialOrderReconciliation, FinancialServicesDashboard } from '@/app/lib/financialServices';
 
 type FinancialEntity = 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report';
@@ -18,15 +26,26 @@ export default function FinancialServicesOpsClient() {
     orderReconciliation: []
   });
   const [feedback, setFeedback] = useState('');
+  const [adminSessionExpired, setAdminSessionExpired] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
   const [search, setSearch] = useState('');
   const [queueFilter, setQueueFilter] = useState<'all' | 'payouts' | 'withdrawals' | 'royalties' | 'settlements'>('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [pillarFilter, setPillarFilter] = useState('all');
+  const [reportPillarFilter, setReportPillarFilter] = useState('all');
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
 
   useEffect(() => {
     fetchFinancialServicesDashboard()
-      .then(setData)
-      .catch((error) => setFeedback(error instanceof Error ? error.message : 'Unable to load financial services.'));
+      .then((next) => {
+        setData(next);
+        setAdminSessionExpired(false);
+      })
+      .catch((error) => {
+        setFeedback(error instanceof Error ? error.message : 'Unable to load financial services.');
+        if (isAdminSessionError(error)) setAdminSessionExpired(true);
+      });
   }, []);
 
   const summary = useMemo(
@@ -98,11 +117,38 @@ export default function FinancialServicesOpsClient() {
       }),
     [data.orderReconciliation, normalizedSearch, pillarFilter, statusFilter]
   );
-  const reconciliationReport = useMemo(() => buildFinancialReconciliationReport(filteredSettlements), [filteredSettlements]);
-  const auditHistory = useMemo(() => buildFinancialAuditHistory(data), [data]);
+  const reportFilters = useMemo(
+    () => ({
+      pillar: reportPillarFilter,
+      startDate: reportStartDate,
+      endDate: reportEndDate
+    }),
+    [reportEndDate, reportPillarFilter, reportStartDate]
+  );
+  const reconciliationReport = useMemo(
+    () => buildFinancialReconciliationReport(filterFinancialReconciliation(data.orderReconciliation, reportFilters)),
+    [data.orderReconciliation, reportFilters]
+  );
+  const auditHistory = useMemo(
+    () => filterFinancialAuditHistory(buildFinancialAuditHistory(data), reportFilters),
+    [data, reportFilters]
+  );
+
+  const reportJsonUrl = useMemo(() => getFinancialServicesReportUrl('json', reportFilters), [reportFilters]);
+  const reportCsvUrl = useMemo(() => getFinancialServicesReportUrl('csv', reportFilters), [reportFilters]);
 
   async function update(entity: FinancialEntity, id: string, status: string) {
-    const json = await updateFinancialServiceRecord({ entity, id, status });
+    let json;
+    try {
+      json = await updateFinancialServiceRecord({ entity, id, status });
+      setAdminSessionExpired(false);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to update financial service record.');
+      if (isAdminSessionError(error)) {
+        setAdminSessionExpired(true);
+      }
+      return;
+    }
     if (entity === 'payout') {
       setData((current) => ({ ...current, payouts: current.payouts.map((entry) => (entry.id === id ? json.payout : entry)) }));
       return;
@@ -142,6 +188,34 @@ export default function FinancialServicesOpsClient() {
     }
   }
 
+  async function recoverAdminSession() {
+    setSessionBusy(true);
+    setFeedback('');
+    try {
+      await establishAdminSession();
+      const next = await fetchFinancialServicesDashboard();
+      setData(next);
+      setAdminSessionExpired(false);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to establish admin session.');
+    } finally {
+      setSessionBusy(false);
+    }
+  }
+
+  async function signOutAdminSession() {
+    setSessionBusy(true);
+    setFeedback('');
+    try {
+      await clearAdminSession();
+      clearAdminSessionLocalState();
+      window.location.reload();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to clear admin session.');
+      setSessionBusy(false);
+    }
+  }
+
   function reconcileRow(
     current: FinancialOrderReconciliation,
     order: FinancialServicesDashboard['marketplaceOrders'][number] | undefined,
@@ -158,6 +232,33 @@ export default function FinancialServicesOpsClient() {
 
   return (
     <section className="space-y-6">
+      {adminSessionExpired ? (
+        <div className="rounded-[28px] border border-[#d4af37]/20 bg-[#111111] p-5">
+          <h2 className="text-lg font-semibold text-white">Admin session expired</h2>
+          <p className="mt-2 text-sm text-gray-300">
+            This finance surface still has your local admin identity, but the protected admin cookie session expired. Re-establish it to keep reconciling payouts and exports, or sign out fully.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void recoverAdminSession()}
+              disabled={sessionBusy}
+              className="rounded-xl bg-[#d4af37] px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {sessionBusy ? 'Re-establishing...' : 'Re-establish admin session'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOutAdminSession()}
+              disabled={sessionBusy}
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white transition hover:border-red-400/40 hover:text-[#f3deb1] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Sign out admin
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-6">
         <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Instant payout usage</p><p className="mt-2 text-2xl font-semibold text-white">{summary.payoutUsage}</p></div>
         <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">INDI withdrawal ops</p><p className="mt-2 text-2xl font-semibold text-white">{summary.withdrawalOps}</p></div>
@@ -229,18 +330,49 @@ export default function FinancialServicesOpsClient() {
           </div>
           <div className="flex flex-wrap gap-3">
             <a
-              href="/api/admin/financial-services/report?format=json"
+              href={reportJsonUrl}
               className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white transition hover:border-[#d4af37]/40 hover:text-[#f3deb1]"
             >
               Open JSON
             </a>
             <a
-              href="/api/admin/financial-services/report?format=csv"
+              href={reportCsvUrl}
               className="rounded-xl border border-[#d4af37]/30 px-4 py-2 text-sm text-[#f3deb1] transition hover:bg-[#d4af37]/10"
             >
               Export CSV
             </a>
           </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Report pillar</span>
+            <select value={reportPillarFilter} onChange={(event) => setReportPillarFilter(event.target.value)} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none">
+              <option value="all">All pillars</option>
+              {availablePillars.map((pillar) => (
+                <option key={pillar} value={pillar}>
+                  {pillar}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">From date</span>
+            <input
+              type="date"
+              value={reportStartDate}
+              onChange={(event) => setReportStartDate(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">To date</span>
+            <input
+              type="date"
+              value={reportEndDate}
+              onChange={(event) => setReportEndDate(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            />
+          </label>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {reconciliationReport.map((row) => (

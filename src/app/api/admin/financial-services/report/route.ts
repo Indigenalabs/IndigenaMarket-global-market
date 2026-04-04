@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
 import { listFinancialServices } from '@/app/lib/financialServices';
-import { buildFinancialAuditHistory, buildFinancialReconciliationReport } from '@/app/lib/financialServicesPresentation';
+import { buildFinancialAuditHistory, buildFinancialReconciliationReport, filterFinancialAuditHistory, filterFinancialReconciliation } from '@/app/lib/financialServicesPresentation';
 
 function esc(value: string | number) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -13,8 +13,14 @@ export async function GET(req: NextRequest) {
 
   const format = (req.nextUrl.searchParams.get('format') || 'json').trim().toLowerCase();
   const data = await listFinancialServices();
-  const reportRows = buildFinancialReconciliationReport(data.orderReconciliation);
-  const auditRows = buildFinancialAuditHistory(data);
+  const filters = {
+    pillar: (req.nextUrl.searchParams.get('pillar') || '').trim(),
+    startDate: (req.nextUrl.searchParams.get('startDate') || '').trim(),
+    endDate: (req.nextUrl.searchParams.get('endDate') || '').trim()
+  };
+  const filteredReconciliation = filterFinancialReconciliation(data.orderReconciliation, filters);
+  const reportRows = buildFinancialReconciliationReport(filteredReconciliation);
+  const auditRows = filterFinancialAuditHistory(buildFinancialAuditHistory(data), filters);
 
   if (format === 'csv') {
     const reportCsv = [
@@ -64,6 +70,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     data: {
       generatedAt: new Date().toISOString(),
+      filters,
       reportRows,
       auditRows
     }
