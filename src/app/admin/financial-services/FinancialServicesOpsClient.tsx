@@ -15,6 +15,8 @@ import {
   buildFinancialReconciliationReport,
   buildPayoutAuditHistory,
   buildPayoutReconciliationReport,
+  buildRoyaltyAuditHistory,
+  buildRoyaltyReconciliationReport,
   filterFinancialAuditHistory,
   filterFinancialReconciliation
 } from '@/app/lib/financialServicesPresentation';
@@ -90,6 +92,10 @@ export default function FinancialServicesOpsClient() {
   const [payoutReportStatusFilter, setPayoutReportStatusFilter] = useState('all');
   const [payoutReportStartDate, setPayoutReportStartDate] = useState('');
   const [payoutReportEndDate, setPayoutReportEndDate] = useState('');
+  const [royaltyReportPillarFilter, setRoyaltyReportPillarFilter] = useState('all');
+  const [royaltyReportStatusFilter, setRoyaltyReportStatusFilter] = useState('all');
+  const [royaltyReportStartDate, setRoyaltyReportStartDate] = useState('');
+  const [royaltyReportEndDate, setRoyaltyReportEndDate] = useState('');
   const [royaltyStartDate, setRoyaltyStartDate] = useState('');
   const [royaltyEndDate, setRoyaltyEndDate] = useState('');
 
@@ -240,6 +246,20 @@ export default function FinancialServicesOpsClient() {
   const payoutAuditRows = useMemo(() => buildPayoutAuditHistory(data, payoutReportFilters), [data, payoutReportFilters]);
   const payoutReportJsonUrl = useMemo(() => getFinancialServicesReportUrl('json', payoutReportFilters), [payoutReportFilters]);
   const payoutReportCsvUrl = useMemo(() => getFinancialServicesReportUrl('csv', payoutReportFilters), [payoutReportFilters]);
+  const royaltyReportFilters = useMemo(
+    () => ({
+      view: 'royalties' as const,
+      pillar: royaltyReportPillarFilter,
+      status: royaltyReportStatusFilter,
+      startDate: royaltyReportStartDate,
+      endDate: royaltyReportEndDate
+    }),
+    [royaltyReportEndDate, royaltyReportPillarFilter, royaltyReportStartDate, royaltyReportStatusFilter]
+  );
+  const royaltyReportRows = useMemo(() => buildRoyaltyReconciliationReport(data, royaltyReportFilters), [data, royaltyReportFilters]);
+  const royaltyAuditRows = useMemo(() => buildRoyaltyAuditHistory(data, royaltyReportFilters), [data, royaltyReportFilters]);
+  const royaltyReportJsonUrl = useMemo(() => getFinancialServicesReportUrl('json', royaltyReportFilters), [royaltyReportFilters]);
+  const royaltyReportCsvUrl = useMemo(() => getFinancialServicesReportUrl('csv', royaltyReportFilters), [royaltyReportFilters]);
 
   async function update(entity: FinancialEntity, id: string, status: string) {
     let json;
@@ -821,6 +841,117 @@ export default function FinancialServicesOpsClient() {
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-gray-400">{entry.note} • gross {entry.amount.toFixed(2)} • fee {entry.feeAmount.toFixed(2)} • {entry.occurredAt}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Royalty reconciliation</h2>
+            <p className="mt-1 text-sm text-gray-400">Review royalty and sale-ledger movement by pillar, then export royalty-specific report and audit history slices.</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href={royaltyReportJsonUrl}
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white transition hover:border-[#d4af37]/40 hover:text-[#f3deb1]"
+            >
+              Open royalty JSON
+            </a>
+            <a
+              href={royaltyReportCsvUrl}
+              className="rounded-xl border border-[#d4af37]/30 px-4 py-2 text-sm text-[#f3deb1] transition hover:bg-[#d4af37]/10"
+            >
+              Export royalty CSV
+            </a>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Royalty pillar</span>
+            <select
+              value={royaltyReportPillarFilter}
+              onChange={(event) => setRoyaltyReportPillarFilter(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            >
+              <option value="all">All pillars</option>
+              {availablePillars.map((pillar) => (
+                <option key={`royalty-report-${pillar}`} value={pillar}>
+                  {pillar}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Royalty status</span>
+            <select
+              value={royaltyReportStatusFilter}
+              onChange={(event) => setRoyaltyReportStatusFilter(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            >
+              <option value="all">All statuses</option>
+              <option value="paid">Paid</option>
+              <option value="pending_payout">Pending payout</option>
+              <option value="settled">Settled</option>
+              <option value="disputed">Disputed</option>
+              <option value="refunded">Refunded</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">From date</span>
+            <input
+              type="date"
+              value={royaltyReportStartDate}
+              onChange={(event) => setRoyaltyReportStartDate(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">To date</span>
+            <input
+              type="date"
+              value={royaltyReportEndDate}
+              onChange={(event) => setRoyaltyReportEndDate(event.target.value)}
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none"
+            />
+          </label>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {royaltyReportRows.map((row) => (
+            <div key={`${row.pillar}-${row.status}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{row.pillar}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{row.entryCount} {row.status}</p>
+              <p className="mt-2 text-sm text-gray-300">Gross {row.grossAmount.toFixed(2)}</p>
+              <p className="mt-1 text-xs text-gray-500">Fees {row.platformFeeAmount.toFixed(2)} • Net {row.creatorNetAmount.toFixed(2)}</p>
+            </div>
+          ))}
+          {royaltyReportRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 p-4 text-sm text-gray-400">
+              No royalty report rows match the current royalty filters.
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-gray-300">Royalty audit history</h3>
+            <p className="text-xs text-gray-500">{royaltyAuditRows.length} entries</p>
+          </div>
+          <div className="mt-3 space-y-2">
+            {royaltyAuditRows.slice(0, 10).map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{entry.item}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.pillar} • {entry.type} • {entry.sourceReference}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-white">{entry.creatorNetAmount.toFixed(2)} {entry.currency}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.status}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-400">{entry.note} • gross {entry.grossAmount.toFixed(2)} • fee {entry.platformFeeAmount.toFixed(2)} • {entry.actorId} • {entry.occurredAt}</p>
               </div>
             ))}
           </div>

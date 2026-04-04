@@ -68,6 +68,15 @@ export interface FinancialPayoutReportRow {
   netAmount: number;
 }
 
+export interface FinancialRoyaltyReportRow {
+  pillar: string;
+  status: string;
+  entryCount: number;
+  grossAmount: number;
+  platformFeeAmount: number;
+  creatorNetAmount: number;
+}
+
 export interface FinancialAuditHistoryEntry {
   id: string;
   entity: 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report';
@@ -93,6 +102,22 @@ export interface FinancialPayoutAuditHistoryEntry {
   amount: number;
   feeAmount: number;
   netAmount: number;
+  currency: string;
+  note: string;
+  occurredAt: string;
+}
+
+export interface FinancialRoyaltyAuditHistoryEntry {
+  id: string;
+  pillar: string;
+  status: string;
+  type: 'sale' | 'royalty';
+  actorId: string;
+  item: string;
+  sourceReference: string;
+  grossAmount: number;
+  platformFeeAmount: number;
+  creatorNetAmount: number;
   currency: string;
   note: string;
   occurredAt: string;

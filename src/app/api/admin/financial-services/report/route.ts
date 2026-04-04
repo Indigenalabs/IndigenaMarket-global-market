@@ -6,6 +6,8 @@ import {
   buildFinancialReconciliationReport,
   buildPayoutAuditHistory,
   buildPayoutReconciliationReport,
+  buildRoyaltyAuditHistory,
+  buildRoyaltyReconciliationReport,
   filterFinancialAuditHistory,
   filterFinancialReconciliation
 } from '@/app/lib/financialServicesPresentation';
@@ -74,6 +76,55 @@ export async function GET(req: NextRequest) {
         filters,
         payoutReportRows,
         payoutAuditRows
+      }
+    });
+  }
+
+  if (view === 'royalties') {
+    const royaltyReportRows = buildRoyaltyReconciliationReport(data, filters);
+    const royaltyAuditRows = buildRoyaltyAuditHistory(data, filters);
+
+    if (format === 'csv') {
+      const royaltyCsv = [
+        'section,pillar,status,entry_count,gross_amount,platform_fee_amount,creator_net_amount',
+        ...royaltyReportRows.map((row) =>
+          ['royalty-report', row.pillar, row.status, row.entryCount, row.grossAmount, row.platformFeeAmount, row.creatorNetAmount].map(esc).join(',')
+        ),
+        '',
+        'section,pillar,status,type,actor_id,item,source_reference,gross_amount,platform_fee_amount,creator_net_amount,currency,note,occurred_at',
+        ...royaltyAuditRows.map((row) =>
+          [
+            'royalty-audit-history',
+            row.pillar,
+            row.status,
+            row.type,
+            row.actorId,
+            row.item,
+            row.sourceReference,
+            row.grossAmount,
+            row.platformFeeAmount,
+            row.creatorNetAmount,
+            row.currency,
+            row.note,
+            row.occurredAt
+          ].map(esc).join(',')
+        )
+      ].join('\n');
+      return new NextResponse(royaltyCsv, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="financial-services-royalty-report.csv"'
+        }
+      });
+    }
+
+    return NextResponse.json({
+      data: {
+        generatedAt: new Date().toISOString(),
+        filters,
+        royaltyReportRows,
+        royaltyAuditRows
       }
     });
   }

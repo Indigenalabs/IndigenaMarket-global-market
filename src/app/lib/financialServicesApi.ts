@@ -4,7 +4,7 @@ import { buildApiUrl, fetchWithTimeout, parseApiError } from '@/app/lib/apiClien
 import type { FinancialServicesDashboard, InstantPayoutRequest, BnplApplication, TaxReportPurchase } from '@/app/lib/financialServices';
 
 export type FinancialReportQuery = {
-  view?: 'reconciliation' | 'payouts';
+  view?: 'reconciliation' | 'payouts' | 'royalties';
   pillar?: string;
   queue?: string;
   status?: string;

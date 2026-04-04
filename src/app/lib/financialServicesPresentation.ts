@@ -4,7 +4,9 @@ import type {
   FinancialServicesDashboard,
   FinancialAuditHistoryEntry,
   FinancialPayoutAuditHistoryEntry,
-  FinancialPayoutReportRow
+  FinancialPayoutReportRow,
+  FinancialRoyaltyAuditHistoryEntry,
+  FinancialRoyaltyReportRow
 } from '@/app/lib/financialServices';
 
 export interface FinancialReportFilters {
@@ -240,6 +242,78 @@ export function buildPayoutAuditHistory(
     }));
 
   return [...payoutEntries, ...withdrawalEntries]
+    .sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)))
+    .slice(0, 200);
+}
+
+export function buildRoyaltyReconciliationReport(
+  data: Pick<FinancialServicesDashboard, 'royalties'>,
+  filters: FinancialReportFilters = {}
+): FinancialRoyaltyReportRow[] {
+  const grouped = new Map<string, FinancialRoyaltyReportRow>();
+  const pillarFilter = String(filters.pillar || '').trim();
+  const statusFilter = String(filters.status || '').trim();
+
+  for (const entry of data.royalties) {
+    if (pillarFilter && pillarFilter !== 'all' && entry.pillar !== pillarFilter) continue;
+    if (statusFilter && statusFilter !== 'all' && entry.status !== statusFilter) continue;
+    if (!withinDateRange(entry.createdAt, filters)) continue;
+    const key = `${entry.pillar}:${entry.status}`;
+    const current = grouped.get(key) || {
+      pillar: entry.pillar,
+      status: entry.status,
+      entryCount: 0,
+      grossAmount: 0,
+      platformFeeAmount: 0,
+      creatorNetAmount: 0
+    };
+    current.entryCount += 1;
+    current.grossAmount += entry.grossAmount;
+    current.platformFeeAmount += entry.platformFeeAmount;
+    current.creatorNetAmount += entry.creatorNetAmount;
+    grouped.set(key, current);
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => right.creatorNetAmount - left.creatorNetAmount);
+}
+
+export function buildRoyaltyAuditHistory(
+  data: Pick<FinancialServicesDashboard, 'royalties'>,
+  filters: FinancialReportFilters = {}
+): FinancialRoyaltyAuditHistoryEntry[] {
+  const pillarFilter = String(filters.pillar || '').trim();
+  const statusFilter = String(filters.status || '').trim();
+
+  return data.royalties
+    .filter((entry) => {
+      if (entry.type !== 'sale' && entry.type !== 'royalty') return false;
+      if (pillarFilter && pillarFilter !== 'all' && entry.pillar !== pillarFilter) return false;
+      if (statusFilter && statusFilter !== 'all' && entry.status !== statusFilter) return false;
+      return withinDateRange(entry.createdAt, filters);
+    })
+    .map((entry): FinancialRoyaltyAuditHistoryEntry => ({
+      id: `royalty-audit-${entry.id}`,
+      pillar: entry.pillar,
+      status: entry.status,
+      type: entry.type === 'sale' ? 'sale' : 'royalty',
+      actorId: entry.actorId,
+      item: entry.item,
+      sourceReference:
+        String(entry.metadata?.orderId || '') ||
+        String(entry.metadata?.receiptId || '') ||
+        String(entry.metadata?.bookingId || '') ||
+        entry.id,
+      grossAmount: entry.grossAmount,
+      platformFeeAmount: entry.platformFeeAmount,
+      creatorNetAmount: entry.creatorNetAmount,
+      currency: String(entry.metadata?.currency || 'INDI'),
+      note: entry.type === 'royalty' ? 'Royalty lifecycle update' : 'Sale ledger lifecycle update',
+      occurredAt:
+        String(entry.metadata?.settlementCaseUpdatedAt || '') ||
+        String(entry.metadata?.orderSettlementUpdatedAt || '') ||
+        String(entry.metadata?.royaltyStatusUpdatedAt || '') ||
+        entry.createdAt
+    }))
     .sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)))
     .slice(0, 200);
 }
