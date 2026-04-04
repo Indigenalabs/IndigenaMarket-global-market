@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -10,16 +10,25 @@ type PromptPayload = {
   state: Exclude<PromptState, 'idle'>;
   actionLabel: string;
   message: string;
+  redirectHref?: string;
 };
 
-const idlePrompt = {
+type PromptViewState = {
+  state: PromptState;
+  actionLabel: string;
+  message: string;
+  redirectHref: string;
+};
+
+const idlePrompt: PromptViewState = {
   state: 'idle' as PromptState,
   actionLabel: '',
-  message: ''
+  message: '',
+  redirectHref: ''
 };
 
 export default function WalletActionPromptHost() {
-  const [prompt, setPrompt] = useState(idlePrompt);
+  const [prompt, setPrompt] = useState<PromptViewState>(idlePrompt);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -27,7 +36,12 @@ export default function WalletActionPromptHost() {
       const detail = (event as CustomEvent<PromptPayload>).detail;
       if (!detail) return;
       if (timer) clearTimeout(timer);
-      setPrompt(detail);
+      setPrompt({
+        state: detail.state,
+        actionLabel: detail.actionLabel,
+        message: detail.message,
+        redirectHref: detail.redirectHref || ''
+      });
       if (detail.state !== 'error') {
         timer = setTimeout(() => setPrompt(idlePrompt), detail.state === 'pending' ? 2500 : 2200);
       }
@@ -77,15 +91,15 @@ export default function WalletActionPromptHost() {
         <div className="flex items-start gap-3">
           <div className="mt-0.5">{styles.icon}</div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[#d4af37]/75">Wallet Required</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[#d4af37]/75">Sign In Required</p>
             <p className="mt-1 text-sm font-medium text-white">{prompt.message}</p>
             {prompt.state === 'error' && (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
-                  href="/wallet"
+                  href={prompt.redirectHref || '/sign-in'}
                   className="rounded-full border border-[#d4af37]/35 px-3 py-1.5 text-xs font-medium text-[#d4af37] hover:bg-[#d4af37]/10"
                 >
-                  Open Wallet Page
+                  Open Sign In
                 </Link>
                 <button
                   type="button"
@@ -102,3 +116,5 @@ export default function WalletActionPromptHost() {
     </div>
   );
 }
+
+

@@ -1,11 +1,14 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { fetchWithTimeout, parseApiError } from '@/app/lib/apiClient';
 import type { VerificationPurchaseEventRecord, VerificationPurchaseRecord } from '@/app/lib/verificationPurchases';
 import type { ElderSignatureRequestEventRecord, ElderSignatureRequestRecord } from '@/app/lib/elderSignatureRequests';
+import type { VerificationApplicationRecord, VerificationStatusHistoryRecord } from '@/app/lib/indigenousVerification';
 
 export default function VerificationReviewClient() {
+  const [applications, setApplications] = useState<VerificationApplicationRecord[]>([]);
+  const [statusHistory, setStatusHistory] = useState<VerificationStatusHistoryRecord[]>([]);
   const [purchases, setPurchases] = useState<VerificationPurchaseRecord[]>([]);
   const [elderRequests, setElderRequests] = useState<ElderSignatureRequestRecord[]>([]);
   const [purchaseEvents, setPurchaseEvents] = useState<VerificationPurchaseEventRecord[]>([]);
@@ -17,11 +20,15 @@ export default function VerificationReviewClient() {
     const res = await fetchWithTimeout('/api/admin/verification/review', { cache: 'no-store' });
     if (!res.ok) throw new Error(await parseApiError(res, 'Failed to load verification review'));
     const json = (await res.json()) as {
+      applications?: VerificationApplicationRecord[];
+      statusHistory?: VerificationStatusHistoryRecord[];
       purchases?: VerificationPurchaseRecord[];
       elderRequests?: ElderSignatureRequestRecord[];
       purchaseEvents?: VerificationPurchaseEventRecord[];
       elderRequestEvents?: ElderSignatureRequestEventRecord[];
     };
+    setApplications(json.applications || []);
+    setStatusHistory(json.statusHistory || []);
     setPurchases(json.purchases || []);
     setElderRequests(json.elderRequests || []);
     setPurchaseEvents(json.purchaseEvents || []);
@@ -36,6 +43,28 @@ export default function VerificationReviewClient() {
     () => purchases.filter((entry) => entry.status === 'paid').reduce((sum, entry) => sum + entry.amount, 0),
     [purchases]
   );
+
+  async function updateApplication(id: string, status: VerificationApplicationRecord['status']) {
+    try {
+      setBusyKey(id);
+      setFeedback('');
+      const res = await fetchWithTimeout('/api/admin/verification/review', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity: 'application', id, status })
+      });
+      if (!res.ok) throw new Error(await parseApiError(res, 'Failed to update verification application'));
+      const json = (await res.json()) as { application?: VerificationApplicationRecord | null };
+      if (json.application) {
+        setApplications((current) => current.map((entry) => (entry.id === id ? json.application! : entry)));
+      }
+      await load();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Failed to update verification application');
+    } finally {
+      setBusyKey('');
+    }
+  }
 
   async function updatePurchase(id: string, status: VerificationPurchaseRecord['status']) {
     try {
@@ -87,13 +116,64 @@ export default function VerificationReviewClient() {
       </section>
 
       <section className="rounded-[28px] border border-white/10 bg-[#111111] p-6">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
+          <Metric label="Applications" value={String(applications.length)} />
           <Metric label="Paid purchases" value={String(purchases.filter((entry) => entry.status === 'paid').length)} />
           <Metric label="Pending purchases" value={String(purchases.filter((entry) => entry.status === 'pending').length)} />
           <Metric label="Pending elder requests" value={String(elderRequests.filter((entry) => entry.status === 'pending').length)} />
           <Metric label="Verification revenue" value={`$${Math.round(purchaseRevenue).toLocaleString()}`} />
         </div>
         {feedback && <p className="mt-4 text-sm text-[#f3deb1]">{feedback}</p>}
+      </section>
+
+      <section className="rounded-[28px] border border-white/10 bg-[#111111] p-6">
+        <h2 className="text-lg font-semibold text-white">Seller Verification Applications</h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full divide-y divide-white/10 text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-[0.24em] text-gray-500">
+                <th className="px-3 py-3">Applicant</th>
+                <th className="px-3 py-3">Lane</th>
+                <th className="px-3 py-3">Profile</th>
+                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">Submitted</th>
+                <th className="px-3 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {applications.map((entry) => (
+                <tr key={entry.id} className="text-gray-300">
+                  <td className="px-3 py-3">
+                    <div>{entry.applicantDisplayName}</div>
+                    <div className="text-xs text-gray-500">{entry.email || entry.walletAddress || entry.actorId}</div>
+                  </td>
+                  <td className="px-3 py-3">{entry.verificationType.replaceAll('_', ' ')}</td>
+                  <td className="px-3 py-3">{entry.profileSlug || entry.communitySlug || 'n/a'}</td>
+                  <td className="px-3 py-3">{entry.status}</td>
+                  <td className="px-3 py-3">{entry.submittedAt ? new Date(entry.submittedAt).toLocaleDateString() : 'n/a'}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => updateApplication(entry.id, 'pending_review')} disabled={busyKey === entry.id} className="rounded-full border border-white/15 px-3 py-1 text-xs text-gray-300 disabled:opacity-50">Queue</button>
+                      <button onClick={() => updateApplication(entry.id, 'provisional_verified')} disabled={busyKey === entry.id} className="rounded-full border border-[#d4af37]/25 px-3 py-1 text-xs text-[#f3d780] disabled:opacity-50">Provisional</button>
+                      <button onClick={() => updateApplication(entry.id, entry.verificationType === 'nation_community_seller' ? 'verified_community' : entry.verificationType === 'elder_cultural_authority' ? 'verified_elder_authority' : 'verified_indigenous_seller')} disabled={busyKey === entry.id} className="rounded-full border border-emerald-500/25 px-3 py-1 text-xs text-emerald-300 disabled:opacity-50">Approve</button>
+                      <button onClick={() => updateApplication(entry.id, 'restricted')} disabled={busyKey === entry.id} className="rounded-full border border-red-500/25 px-3 py-1 text-xs text-red-300 disabled:opacity-50">Restrict</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-5 space-y-2">
+          <p className="text-sm font-semibold text-white">Application status history</p>
+          {statusHistory.slice(0, 8).map((entry) => (
+            <div key={entry.id} className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-300">
+              <span className="font-medium text-white">{entry.applicationId}</span>
+              {` â€¢ ${entry.fromStatus || 'new'} â†’ ${entry.toStatus} â€¢ ${entry.note} â€¢ ${entry.actorId} â€¢ ${new Date(entry.createdAt).toLocaleString()}`}
+            </div>
+          ))}
+          {statusHistory.length === 0 && <p className="text-sm text-gray-500">No verification application events yet.</p>}
+        </div>
       </section>
 
       <section className="rounded-[28px] border border-white/10 bg-[#111111] p-6">
@@ -134,7 +214,7 @@ export default function VerificationReviewClient() {
           {purchaseEvents.slice(0, 8).map((entry) => (
             <div key={entry.id} className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-300">
               <span className="font-medium text-white">{entry.purchaseId}</span>
-              {` • ${entry.status} • ${entry.note} • ${entry.actorId} • ${new Date(entry.createdAt).toLocaleString()}`}
+              {` â€¢ ${entry.status} â€¢ ${entry.note} â€¢ ${entry.actorId} â€¢ ${new Date(entry.createdAt).toLocaleString()}`}
             </div>
           ))}
           {purchaseEvents.length === 0 && <p className="text-sm text-gray-500">No purchase events yet.</p>}
@@ -182,7 +262,7 @@ export default function VerificationReviewClient() {
           {elderRequestEvents.slice(0, 8).map((entry) => (
             <div key={entry.id} className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-300">
               <span className="font-medium text-white">{entry.requestId}</span>
-              {` • ${entry.status} • ${entry.note} • ${entry.actorId} • ${new Date(entry.createdAt).toLocaleString()}`}
+              {` â€¢ ${entry.status} â€¢ ${entry.note} â€¢ ${entry.actorId} â€¢ ${new Date(entry.createdAt).toLocaleString()}`}
             </div>
           ))}
           {elderRequestEvents.length === 0 && <p className="text-sm text-gray-500">No elder-signature events yet.</p>}
@@ -200,3 +280,4 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+

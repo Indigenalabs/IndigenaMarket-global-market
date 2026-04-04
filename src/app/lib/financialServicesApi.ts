@@ -1,7 +1,16 @@
 'use client';
 
-import { fetchWithTimeout, parseApiError } from '@/app/lib/apiClient';
+import { buildApiUrl, fetchWithTimeout, parseApiError } from '@/app/lib/apiClient';
 import type { FinancialServicesDashboard, InstantPayoutRequest, BnplApplication, TaxReportPurchase } from '@/app/lib/financialServices';
+
+export type FinancialReportQuery = {
+  view?: 'reconciliation' | 'payouts' | 'royalties';
+  pillar?: string;
+  queue?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+};
 
 export async function fetchFinancialServicesDashboard() {
   const res = await fetchWithTimeout('/api/financial-services/dashboard');
@@ -27,8 +36,43 @@ export async function purchaseTaxReportApi(payload: { actorId: string; taxYear: 
   return (await res.json()).data.report as TaxReportPurchase;
 }
 
-export async function updateFinancialServiceRecord(payload: { entity: 'payout' | 'bnpl' | 'tax-report'; id: string; status: string; }) {
+export async function updateFinancialServiceRecord(payload: { entity: 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report'; id: string; status: string; note?: string; }) {
   const res = await fetchWithTimeout('/api/admin/financial-services', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   if (!res.ok) throw new Error(await parseApiError(res, 'Unable to update financial service record'));
   return await res.json();
+}
+
+export async function establishAdminSession() {
+  const res = await fetchWithTimeout('/api/admin/session', { method: 'POST' });
+  if (!res.ok) throw new Error(await parseApiError(res, 'Unable to establish admin session'));
+  return await res.json();
+}
+
+export async function clearAdminSession() {
+  const res = await fetchWithTimeout('/api/admin/session', { method: 'DELETE' });
+  if (!res.ok) throw new Error(await parseApiError(res, 'Unable to clear admin session'));
+  return await res.json();
+}
+
+export function clearAdminSessionLocalState() {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return;
+  window.localStorage.removeItem('indigena_admin_signed');
+  window.localStorage.removeItem('indigena_admin_wallet');
+}
+
+export function isAdminSessionError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
+  return message.includes('admin signature required') || message.includes('valid admin signature token required') || message.includes('(403)');
+}
+
+export function getFinancialServicesReportUrl(format: 'json' | 'csv', query: FinancialReportQuery = {}) {
+  return buildApiUrl('/admin/financial-services/report', {
+    format,
+    view: query.view,
+    pillar: query.pillar && query.pillar !== 'all' ? query.pillar : undefined,
+    queue: query.queue && query.queue !== 'all' ? query.queue : undefined,
+    status: query.status && query.status !== 'all' ? query.status : undefined,
+    startDate: query.startDate,
+    endDate: query.endDate
+  });
 }

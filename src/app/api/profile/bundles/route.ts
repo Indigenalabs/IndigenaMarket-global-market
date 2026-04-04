@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { getCreatorProfileBySlug, saveCreatorProfileBundle, type ProfileBundle } from '@/app/profile/data/profileShowcase';
 
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to manage bundles.',
+    guestMessage: 'Sign in to manage bundles.',
     forbiddenMessage: 'You can only manage your own bundles.',
     select: 'owner_actor_id'
   });
@@ -125,3 +125,6 @@ export async function POST(req: NextRequest) {
   const profile = saveCreatorProfileBundle(slug, bundle);
   return NextResponse.json({ data: { ok: true, profile, bundle } });
 }
+
+
+

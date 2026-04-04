@@ -29,6 +29,76 @@ function asArray<T>(value: unknown, fallback: T[] = []) {
   return Array.isArray(value) ? (value as T[]) : fallback;
 }
 
+function displayNameFromSlug(slug: string) {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ') || 'Indigena Creator';
+}
+
+function memberSinceLabel() {
+  return new Intl.DateTimeFormat('en-AU', {
+    month: 'short',
+    year: 'numeric'
+  }).format(new Date());
+}
+
+export function buildCreatorProfileFallback(slug: string): CreatorProfileRecord {
+  const seeded = getCreatorProfileBySlug(slug);
+  if (seeded.slug === slug) return seeded;
+
+  const displayName = displayNameFromSlug(slug);
+  return {
+    ...seeded,
+    slug,
+    displayName,
+    username: `@${slug.replace(/-/g, '.')}`,
+    location: '',
+    nation: '',
+    verificationLabel: 'Verification pending',
+    bioShort: 'Finish verification to start selling through your Indigena storefront.',
+    bioLong: '',
+    memberSince: memberSinceLabel(),
+    followerCount: 0,
+    followingCount: 0,
+    salesCount: 0,
+    languages: [],
+    website: '',
+    socials: [],
+    awards: [],
+    exhibitions: [],
+    publications: [],
+    offerings: [],
+    bundles: [],
+    featuredReviews: [],
+    trustSignals: [],
+    collections: [],
+    activity: [],
+    dashboardStats: {
+      salesMtd: '$0',
+      activeListings: 0,
+      followers: 0,
+      availablePayout: '$0'
+    },
+    earningsByPillar: [],
+    trafficSources: [],
+    funnelMetrics: [],
+    itemInsights: [],
+    campaignInsights: [],
+    payoutMethods: [],
+    transactionHistory: [],
+    notifications: [],
+    verificationWorkflow: [],
+    supportRequests: [],
+    messages: [],
+    financeCases: [],
+    financeSummary: seeded.financeSummary,
+    subscriptionMetrics: seeded.subscriptionMetrics,
+    creatorPlanCapabilities: seeded.creatorPlanCapabilities
+  };
+}
+
 function rowToOffering(row: DbRow): ProfileOffering {
   return applyLaunchWindowState({
     id: asText(row.id),
@@ -85,7 +155,7 @@ function buildBundlesFromCollections(offerings: ProfileOffering[], collections: 
 }
 
 export async function loadProfileForInitialRender(slug: string): Promise<CreatorProfileRecord> {
-  const fallback = getCreatorProfileBySlug(slug);
+  const fallback = buildCreatorProfileFallback(slug);
   if (!isSupabaseServerConfigured()) return fallback;
 
   const supabase = createSupabaseServerClient();

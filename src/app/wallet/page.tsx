@@ -1,11 +1,13 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, Copy, ExternalLink, Shield, History, Grid, List, Heart } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, Copy, ExternalLink, Shield, History, Grid, List, Heart, Loader2 } from 'lucide-react';
 import Sidebar from '@/app/components/Sidebar';
 import WalletSessionEntry from '@/app/components/WalletSessionEntry';
 import { fetchWalletSnapshot } from '@/app/lib/walletApi';
+import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
+import { fetchMyIndiBalance, fetchMyIndiLedger, fetchMyIndiWithdrawals, recordMyIndiTopUp, requestMyIndiWithdrawal } from '@/app/lib/indiBalanceApi';
 
 const emptyWalletData = {
   address: '',
@@ -28,6 +30,21 @@ const emptyWalletData = {
   }
 };
 
+function mapIndiLedgerType(type: string): 'buy' | 'sell' | 'mint' | 'royalty' | 'bid' {
+  switch (type) {
+    case 'earning':
+    case 'deposit':
+    case 'refund':
+      return 'sell';
+    case 'withdrawal_request':
+    case 'withdrawal_complete':
+    case 'spend':
+      return 'buy';
+    default:
+      return 'royalty';
+  }
+}
+
 export default function WalletPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('overview');
@@ -40,47 +57,158 @@ export default function WalletPage() {
   const [myNFTs] = useState<Array<{ id: string; title: string; image: string; price: number; listed: boolean }>>([]);
   const [walletConnected, setWalletConnected] = useState(false);
   const [loadingLive, setLoadingLive] = useState(false);
+  const [walletProvider, setWalletProvider] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [indiPendingBalance, setIndiPendingBalance] = useState(0);
+  const [indiLifetimeCredits, setIndiLifetimeCredits] = useState(0);
+  const [indiLifetimeDebits, setIndiLifetimeDebits] = useState(0);
+  const [creatorProfileSlug, setCreatorProfileSlug] = useState('');
+  const [depositAmount, setDepositAmount] = useState('250');
+  const [withdrawAmount, setWithdrawAmount] = useState('50');
+  const [submittingAction, setSubmittingAction] = useState<'deposit' | 'withdraw' | ''>('');
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [withdrawDestinationType, setWithdrawDestinationType] = useState<'bank_account' | 'payid' | 'debit_card' | 'manual_review'>('bank_account');
+  const [withdrawDestinationLabel, setWithdrawDestinationLabel] = useState('Primary bank payout');
+  const [withdrawAccountName, setWithdrawAccountName] = useState('');
+  const [withdrawLast4, setWithdrawLast4] = useState('');
+  const [withdrawalRequests, setWithdrawalRequests] = useState<Array<{ id: string; amount: number; netAmount: number; destinationLabel: string; destinationType: string; status: string; requestedAt: string }>>([]);
 
-  useEffect(() => {
-    let active = true;
-    const loadWallet = async () => {
-      setLoadingLive(true);
-      try {
-        const walletAddress =
-          typeof window !== 'undefined'
-            ? (window.localStorage.getItem('indigena_wallet_address') || '').trim()
-            : '';
-        if (!walletAddress) {
-          if (!active) return;
-          setWalletConnected(false);
-          setWalletData(emptyWalletData);
-          setTransactions([]);
-          return;
-        }
-        const snapshot = await fetchWalletSnapshot(walletAddress);
-        if (!active) return;
-        setWalletConnected(true);
-        setWalletData({
-          ...emptyWalletData,
-          address: snapshot.address,
-          balance: snapshot.balance,
-          stats: snapshot.stats
-        });
-        setTransactions(snapshot.transactions);
-      } catch {
-        if (!active) return;
+  const loadWallet = useCallback(async () => {
+    setLoadingLive(true);
+    try {
+      const account = await fetchAccountSessionMe().catch(() => null);
+      if (account?.email) setAccountEmail(account.email);
+      if (account?.walletProvider) setWalletProvider(account.walletProvider);
+      const walletAddress = account?.walletAddress ||
+        (typeof window !== 'undefined'
+          ? (window.localStorage.getItem('indigena_wallet_address') || '').trim()
+          : '');
+      const profileSlug = account?.creatorProfileSlug || '';
+      setCreatorProfileSlug(profileSlug);
+      if (!walletAddress && !account?.actorId) {
         setWalletConnected(false);
         setWalletData(emptyWalletData);
         setTransactions([]);
-      } finally {
-        if (active) setLoadingLive(false);
+        setIndiPendingBalance(0);
+        setIndiLifetimeCredits(0);
+        setIndiLifetimeDebits(0);
+        setCreatorProfileSlug('');
+        return;
       }
-    };
-    void loadWallet();
-    return () => {
-      active = false;
-    };
+      const [snapshot, indiBalance, indiLedger, indiWithdrawals] = await Promise.all([
+        walletAddress ? fetchWalletSnapshot(walletAddress).catch(() => null) : Promise.resolve(null),
+        account?.actorId ? fetchMyIndiBalance(profileSlug).catch(() => null) : Promise.resolve(null),
+        account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([]),
+        account?.actorId ? fetchMyIndiWithdrawals(profileSlug).catch(() => []) : Promise.resolve([])
+      ]);
+      setWalletConnected(true);
+      const ledgerTransactions = indiLedger.map((entry) => ({
+        id: entry.id,
+        type: mapIndiLedgerType(entry.type),
+        item: entry.description || entry.type,
+        amount: Number(entry.amount || 0),
+        currency: 'INDI',
+        date: entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Recently',
+        status: entry.status
+      }));
+      setWalletData({
+        ...emptyWalletData,
+        address: walletAddress,
+        balance: {
+          INDI: indiBalance?.availableBalance ?? snapshot?.balance.INDI ?? 0,
+          XRP: snapshot?.balance.XRP ?? 0,
+          USD: indiBalance?.estimatedFiatValueUsd ?? snapshot?.balance.USD ?? 0
+        },
+        stats: snapshot?.stats ?? emptyWalletData.stats
+      });
+      setTransactions(ledgerTransactions.length > 0 ? ledgerTransactions : (snapshot?.transactions ?? []));
+      setIndiPendingBalance(indiBalance?.pendingBalance ?? 0);
+      setIndiLifetimeCredits(indiBalance?.lifetimeCreditAmount ?? 0);
+      setIndiLifetimeDebits(indiBalance?.lifetimeDebitAmount ?? 0);
+      setWithdrawalRequests(
+        indiWithdrawals.map((request) => ({
+          id: request.id,
+          amount: Number(request.amount || 0),
+          netAmount: Number(request.netAmount || 0),
+          destinationLabel: request.destinationLabel || 'Fiat payout destination',
+          destinationType: request.destinationType,
+          status: request.status,
+          requestedAt: request.requestedAt
+        }))
+      );
+    } catch {
+      setWalletConnected(false);
+      setWalletData(emptyWalletData);
+      setTransactions([]);
+      setIndiPendingBalance(0);
+      setIndiLifetimeCredits(0);
+      setIndiLifetimeDebits(0);
+      setWithdrawalRequests([]);
+    } finally {
+      setLoadingLive(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadWallet();
+  }, [loadWallet]);
+
+  const submitDeposit = async () => {
+    const amount = Number(depositAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setActionError('Enter a valid INDI top-up amount.');
+      setActionMessage('');
+      return;
+    }
+    setSubmittingAction('deposit');
+    setActionError('');
+    setActionMessage('');
+    try {
+      await recordMyIndiTopUp({
+        amount,
+        profileSlug: creatorProfileSlug,
+        source: 'wallet-page',
+        note: 'Wallet quick action top-up'
+      });
+      setActionMessage(`Added ${amount.toLocaleString()} INDI to this managed balance.`);
+      await loadWallet();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Top-up failed.');
+    } finally {
+      setSubmittingAction('');
+    }
+  };
+
+  const submitWithdrawal = async () => {
+    const amount = Number(withdrawAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setActionError('Enter a valid withdrawal amount.');
+      setActionMessage('');
+      return;
+    }
+    setSubmittingAction('withdraw');
+    setActionError('');
+    setActionMessage('');
+    try {
+      await requestMyIndiWithdrawal({
+        amount,
+        profileSlug: creatorProfileSlug,
+        destination: 'fiat',
+        destinationType: withdrawDestinationType,
+        destinationLabel: withdrawDestinationLabel,
+        accountName: withdrawAccountName,
+        last4: withdrawLast4,
+        note: 'Wallet quick action withdrawal'
+      });
+      setActionMessage(`Queued a ${amount.toLocaleString()} INDI withdrawal request for fiat settlement.`);
+      await loadWallet();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Withdrawal request failed.');
+    } finally {
+      setSubmittingAction('');
+    }
+  };
 
   const copyAddress = async () => {
     try {
@@ -96,6 +224,7 @@ export default function WalletPage() {
 
   const openExplorer = () => {
     if (typeof window === 'undefined') return;
+    if (walletProvider === 'indigena_managed') return;
     window.open('https://bithomp.com/explorer/' + walletData.address, '_blank', 'noopener,noreferrer');
   };
 
@@ -120,7 +249,7 @@ export default function WalletPage() {
           <div>
             <h1 className="text-3xl font-bold text-white">My Wallet</h1>
             <p className="text-gray-400">
-              Manage your assets and transactions {loadingLive ? '• syncing live data...' : walletConnected ? '• live' : '• connect wallet'}
+              Manage your assets and transactions {loadingLive ? '• syncing live data...' : walletConnected ? '• live' : '• sign in to sync'}
             </p>
           </div>
         </div>
@@ -132,7 +261,7 @@ export default function WalletPage() {
 
       {!walletConnected && !loadingLive ? (
         <div className="mb-6 rounded-xl border border-[#d4af37]/20 bg-[#141414] p-4 text-sm text-gray-300">
-          Connect a wallet session to load live balances, transaction history, and financial services.
+          Sign in to load live balances, transaction history, and financial services.
         </div>
       ) : null}
 
@@ -144,8 +273,9 @@ export default function WalletPage() {
               <Shield size={20} className="text-[#d4af37]" />
             </div>
             <div>
-              <p className="text-gray-400 text-sm">Wallet Address</p>
+              <p className="text-gray-400 text-sm">Managed Wallet</p>
               <p className="text-white font-mono">{walletData.address ? `${walletData.address.slice(0, 8)}...${walletData.address.slice(-8)}` : 'No wallet connected'}</p>
+              {accountEmail ? <p className="mt-1 text-xs text-gray-500">{accountEmail}</p> : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -158,12 +288,16 @@ export default function WalletPage() {
             </button>
             <button
               onClick={openExplorer}
+              disabled={walletProvider === 'indigena_managed'}
               className="p-2 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-lg text-[#d4af37] hover:bg-[#d4af37] hover:text-black transition-all"
             >
               <ExternalLink size={18} />
             </button>
           </div>
         </div>
+        {walletProvider === 'indigena_managed' ? (
+          <p className="mt-3 text-xs leading-6 text-gray-500">This wallet is managed by Indigena as part of your email-based account. External explorer links are reserved for connected external wallets later.</p>
+        ) : null}
       </div>
 
       {/* Balance Cards */}
@@ -175,6 +309,7 @@ export default function WalletPage() {
           </div>
           <p className="text-3xl font-bold text-white">{walletData.balance.INDI.toLocaleString()}</p>
           <p className="text-gray-400 text-sm">~ ${walletData.balance.USD.toLocaleString()} USD</p>
+          <p className="mt-1 text-xs text-gray-500">Pending: {indiPendingBalance.toLocaleString()} INDI</p>
         </div>
 
         <div className="bg-[#141414] rounded-xl border border-[#d4af37]/10 p-5">
@@ -283,23 +418,125 @@ export default function WalletPage() {
           {/* Quick Actions */}
           <div className="bg-[#141414] rounded-xl border border-[#d4af37]/10 p-5">
             <h3 className="text-lg font-bold text-white mb-4">Quick Actions</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => router.push('/subscription')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">Deposit</p>
-                <p className="text-gray-400 text-xs">Add funds to wallet</p>
-              </button>
-              <button onClick={openExplorer} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">Withdraw</p>
-                <p className="text-gray-400 text-xs">Send to external wallet</p>
-              </button>
-              <button onClick={() => router.push('/digital-arts/add')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">Mint NFT</p>
-                <p className="text-gray-400 text-xs">Create new artwork</p>
-              </button>
-              <button onClick={() => router.push('/digital-arts')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
-                <p className="text-white font-medium">List Item</p>
-                <p className="text-gray-400 text-xs">Sell your NFTs</p>
-              </button>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-[#d4af37]/20 bg-[#d4af37]/5 p-4">
+                <div className="mb-3">
+                  <p className="text-white font-medium">Add INDI</p>
+                  <p className="text-gray-400 text-xs">Credit this managed balance so you can buy, support projects, or test future split flows.</p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={depositAmount}
+                    onChange={(event) => setDepositAmount(event.target.value)}
+                    inputMode="decimal"
+                    className="flex-1 rounded-lg border border-[#d4af37]/20 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="250"
+                  />
+                  <button
+                    onClick={submitDeposit}
+                    disabled={!walletConnected || submittingAction === 'deposit'}
+                    className="inline-flex min-w-[120px] items-center justify-center gap-2 rounded-lg bg-[#d4af37] px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#e4bf47] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {submittingAction === 'deposit' ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Top Up
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3">
+                  <p className="text-white font-medium">Withdraw To Fiat</p>
+                  <p className="text-gray-400 text-xs">Queue a withdrawal request from your INDI balance into the payout rail.</p>
+                </div>
+                <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <select
+                    value={withdrawDestinationType}
+                    onChange={(event) => setWithdrawDestinationType(event.target.value as typeof withdrawDestinationType)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                  >
+                    <option value="bank_account">Bank account</option>
+                    <option value="payid">PayID</option>
+                    <option value="debit_card">Debit card</option>
+                    <option value="manual_review">Manual review</option>
+                  </select>
+                  <input
+                    value={withdrawDestinationLabel}
+                    onChange={(event) => setWithdrawDestinationLabel(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Primary bank payout"
+                  />
+                  <input
+                    value={withdrawAccountName}
+                    onChange={(event) => setWithdrawAccountName(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Account holder"
+                  />
+                  <input
+                    value={withdrawLast4}
+                    onChange={(event) => setWithdrawLast4(event.target.value)}
+                    maxLength={4}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Last 4"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={withdrawAmount}
+                    onChange={(event) => setWithdrawAmount(event.target.value)}
+                    inputMode="decimal"
+                    className="flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="50"
+                  />
+                  <button
+                    onClick={submitWithdrawal}
+                    disabled={!walletConnected || submittingAction === 'withdraw'}
+                    className="inline-flex min-w-[120px] items-center justify-center gap-2 rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 px-4 py-2 text-sm font-semibold text-[#d4af37] transition-all hover:bg-[#d4af37]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {submittingAction === 'withdraw' ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Request
+                  </button>
+                </div>
+              </div>
+
+              {(actionMessage || actionError) ? (
+                <div className={`rounded-xl border px-4 py-3 text-sm ${actionError ? 'border-[#DC143C]/30 bg-[#DC143C]/10 text-[#ff9f9f]' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'}`}>
+                  {actionError || actionMessage}
+                </div>
+              ) : null}
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-white font-medium">Withdrawal Status</p>
+                  <p className="text-xs text-gray-500">{withdrawalRequests.length} requests</p>
+                </div>
+                <div className="space-y-2">
+                  {withdrawalRequests.length === 0 ? (
+                    <p className="text-xs text-gray-500">No withdrawal requests yet.</p>
+                  ) : withdrawalRequests.slice(0, 4).map((request) => (
+                    <div key={request.id} className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                      <div>
+                        <p className="text-sm text-white">{request.amount.toLocaleString()} INDI to {request.destinationLabel}</p>
+                        <p className="text-xs text-gray-500">{request.destinationType.replace('_', ' ')} • {new Date(request.requestedAt).toLocaleDateString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-[#d4af37]">{request.netAmount.toLocaleString()} net</p>
+                        <p className="text-xs uppercase tracking-[0.16em] text-gray-400">{request.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => router.push('/digital-arts/add')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
+                  <p className="text-white font-medium">Mint NFT</p>
+                  <p className="text-gray-400 text-xs">Create new artwork</p>
+                </button>
+                <button onClick={() => router.push('/digital-arts')} className="p-4 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-xl text-left hover:bg-[#d4af37]/20 transition-all">
+                  <p className="text-white font-medium">List Item</p>
+                  <p className="text-gray-400 text-xs">Sell your NFTs</p>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -411,6 +648,14 @@ export default function WalletPage() {
                 <span className="text-gray-400">Total Profit</span>
                 <span className="text-green-400 font-medium">+{walletData.stats.profit} INDI</span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Lifetime Credits</span>
+                <span className="text-white font-medium">{indiLifetimeCredits.toLocaleString()} INDI</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Lifetime Debits</span>
+                <span className="text-white font-medium">{indiLifetimeDebits.toLocaleString()} INDI</span>
+              </div>
             </div>
           </div>
 
@@ -437,3 +682,6 @@ export default function WalletPage() {
     </div>
   );
 }
+
+
+

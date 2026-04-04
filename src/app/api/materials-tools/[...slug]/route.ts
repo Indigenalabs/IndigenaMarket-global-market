@@ -698,10 +698,12 @@ async function confirmOrderPayment(req: NextRequest) {
   }
   let orderTitle = orderId;
   let actorForLedger = '';
+  let productIdForLedger = String(body.productId || '').trim();
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();
-    const { data } = await supabase.from('materials_tools_orders').select('product_title,supplier_id').eq('id', orderId).maybeSingle();
+    const { data } = await supabase.from('materials_tools_orders').select('product_id,product_title,supplier_id').eq('id', orderId).maybeSingle();
     orderTitle = String((data as R | null)?.product_title || orderId);
+    productIdForLedger = String((data as R | null)?.product_id || productIdForLedger);
     const supplierId = String((data as R | null)?.supplier_id || '');
     if (supplierId) {
       const supplierRow = await supabase.from('materials_tools_suppliers').select('*').eq('id', supplierId).maybeSingle();
@@ -728,6 +730,15 @@ async function confirmOrderPayment(req: NextRequest) {
     disputeAmount: 0,
     creatorNetAmount: Number(storedBreakdown.creatorNet || 0),
     disputeReason: '',
+    sourceType: 'listing',
+    sourceId: productIdForLedger || orderId,
+    metadata: {
+      currency: String(body.currency || 'INDI'),
+      paymentStatus,
+      orderId,
+      receiptId,
+      listingId: productIdForLedger || orderId
+    },
     createdAt: new Date().toISOString()
   });
   return NextResponse.json({

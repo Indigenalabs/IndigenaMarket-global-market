@@ -409,7 +409,7 @@ export async function createProfileSupportRequest(payload: {
 }
 
 export async function createQuickProfileDraft(payload: {
-  slug: string;
+  slug?: string;
   pillar: 'freelancing' | 'language-heritage' | 'land-food' | 'advocacy-legal' | 'materials-tools';
   fields: Record<string, string>;
 }) {

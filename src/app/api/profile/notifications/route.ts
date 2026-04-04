@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { getCreatorProfileBySlug, updateCreatorProfileNotifications, type CreatorProfileRecord } from '@/app/profile/data/profileShowcase';
 
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const nextNotifications = normalizeNotifications(body.notifications, fallbackProfile.notifications);
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to update notification settings.',
+    guestMessage: 'Sign in to update notification settings.',
     forbiddenMessage: 'You can only update your own notification settings.',
     select: 'owner_actor_id'
   });
@@ -56,3 +56,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ data: { ok: true, notifications: updateCreatorProfileNotifications(slug, nextNotifications).notifications } });
 }
+
+
+

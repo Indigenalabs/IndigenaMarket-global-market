@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { updateCreatorProfileBasics } from '@/app/profile/data/profileShowcase';
 
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   };
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to update profile basics.',
+    guestMessage: 'Sign in to update profile basics.',
     forbiddenMessage: 'You can only update your own profile.',
     select: 'owner_actor_id'
   });
@@ -62,3 +62,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ data: { ok: true, profile: updateCreatorProfileBasics(slug, nextBasics) } });
 }
+
+
+

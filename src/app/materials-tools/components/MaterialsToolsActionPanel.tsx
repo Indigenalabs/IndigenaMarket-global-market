@@ -87,7 +87,7 @@ export default function MaterialsToolsActionPanel({ variant, title }: { variant:
         disabled={submitting}
         className="mt-5 rounded-full bg-[#d4af37] px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-[#f0c96f] disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {submitting ? 'Submitting…' : 'Connect wallet and submit'}
+        {submitting ? 'Submitting…' : 'Sign In and submit'}
       </button>
       {status.type !== 'idle' ? (
         <p className={`mt-3 text-sm ${status.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>{status.message}</p>
@@ -95,3 +95,6 @@ export default function MaterialsToolsActionPanel({ variant, title }: { variant:
     </section>
   );
 }
+
+
+

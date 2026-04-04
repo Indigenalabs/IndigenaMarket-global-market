@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import {
   type ProfilePresentationSettings,
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   };
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to update profile presentation.',
+    guestMessage: 'Sign in to update profile presentation.',
     forbiddenMessage: 'You can only customize your own profile.',
     select: 'owner_actor_id'
   });
@@ -66,3 +66,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ data: { ok: true, presentation: nextPresentation } });
 }
+
+
+

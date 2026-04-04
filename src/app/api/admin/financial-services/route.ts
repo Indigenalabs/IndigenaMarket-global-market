@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
-import { listFinancialServices, updateBnplStatus, updateInstantPayoutStatus, updateTaxReportStatus } from '@/app/lib/financialServices';
+import { listFinancialServices, updateBnplStatus, updateIndiWithdrawalOpsStatus, updateInstantPayoutStatus, updateMarketplaceOrderSettlement, updateRoyaltyLedgerStatus, updateSettlementCaseStatus, updateTaxReportStatus } from '@/app/lib/financialServices';
 
 export async function GET(req: NextRequest) {
   const auth = await requirePlatformAdmin(req);
@@ -18,6 +18,10 @@ export async function PATCH(req: NextRequest) {
   const status = String(body.status || '').trim();
   if (!entity || !id || !status) return NextResponse.json({ message: 'entity, id, and status are required' }, { status: 400 });
   if (entity === 'payout') return NextResponse.json({ payout: await updateInstantPayoutStatus(id, status as never) });
+  if (entity === 'indi-withdrawal') return NextResponse.json({ withdrawal: await updateIndiWithdrawalOpsStatus(id, status as never, String(body.note || '').trim()) });
+  if (entity === 'royalty') return NextResponse.json({ royalty: await updateRoyaltyLedgerStatus(id, status as never) });
+  if (entity === 'marketplace-order') return NextResponse.json(await updateMarketplaceOrderSettlement(id, status as never));
+  if (entity === 'settlement-case') return NextResponse.json(await updateSettlementCaseStatus(id, status as never));
   if (entity === 'bnpl') return NextResponse.json({ application: await updateBnplStatus(id, status as never) });
   if (entity === 'tax-report') return NextResponse.json({ report: await updateTaxReportStatus(id, status as never) });
   return NextResponse.json({ message: 'Unsupported financial services entity' }, { status: 400 });

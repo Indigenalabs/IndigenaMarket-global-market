@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { Suspense, useEffect, useState, useRef, type ReactNode } from 'react';
 import { 
@@ -21,10 +21,11 @@ import {
 import { requireWalletAction } from '@/app/lib/requireWalletAction';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
+import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import { fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
 
-// ── 12 Course Category Definitions ──────────────────────────────────────────
+// â”€â”€ 12 Course Category Definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Shared Pillar 3 category catalog
 const COURSE_CATEGORIES = PILLAR3_CATEGORIES.map((category) => ({
   id: category.id,
@@ -182,7 +183,7 @@ function QuizBuilder({ lesson, onUpdate }: { lesson: Lesson; onUpdate: (lesson: 
       {/* Questions List */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h4 className="text-white font-medium">Questions ({questions.length}) · {totalPoints} points</h4>
+          <h4 className="text-white font-medium">Questions ({questions.length}) Â· {totalPoints} points</h4>
           <div className="flex gap-2">
             <button onClick={() => addQuestion('multiple_choice')} className="px-3 py-1.5 bg-[#d4af37]/10 text-[#d4af37] rounded-lg text-xs hover:bg-[#d4af37]/20 transition-colors">
               + Multiple Choice
@@ -591,7 +592,8 @@ function CourseCreationPageContent() {
   const returnTo = searchParams.get('returnTo') || '/creator-hub';
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
-  const profileSlug = searchParams.get('slug') || 'aiyana-redbird';
+  const requestedProfileSlug = searchParams.get('slug') || '';
+  const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'basics' | 'curriculum' | 'media' | 'pricing' | 'settings'>(simpleMode ? 'basics' : 'dashboard');
   
@@ -638,7 +640,23 @@ function CourseCreationPageContent() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!editOfferingId) return;
+    if (requestedProfileSlug) {
+      setProfileSlug(requestedProfileSlug);
+      return;
+    }
+    resolveCurrentCreatorProfileSlug()
+      .then((slug) => {
+        if (!cancelled && slug) setProfileSlug(slug);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedProfileSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!editOfferingId || !profileSlug) return;
     fetchPublicProfile(profileSlug)
       .then((data) => {
         if (cancelled) return;
@@ -846,8 +864,11 @@ const buildCoursePayload = (creatorAddress: string) => {
     overrides?: Partial<Pick<ProfileOffering, 'availabilityLabel' | 'availabilityTone' | 'ctaMode'>>
   ) => {
     if (!editOfferingId) return;
+    const activeProfileSlug = profileSlug || (await resolveCurrentCreatorProfileSlug());
+    if (!activeProfileSlug) return;
+    if (!profileSlug) setProfileSlug(activeProfileSlug);
     await updateProfileOffering({
-      slug: profileSlug,
+      slug: activeProfileSlug,
       offeringId: editOfferingId,
       title: courseTitle.trim(),
       blurb: courseDescription.trim(),
@@ -873,7 +894,7 @@ const buildCoursePayload = (creatorAddress: string) => {
         const auth = await requireWalletAction('save this course draft');
         wallet = auth.wallet;
       } catch (error) {
-        setWorkflowMessage(error instanceof Error ? error.message : 'Connect your wallet to save this course draft.');
+        setWorkflowMessage(error instanceof Error ? error.message : 'Sign in to save this course draft.');
         return '';
       }
     }
@@ -925,7 +946,7 @@ const buildCoursePayload = (creatorAddress: string) => {
         const auth = await requireWalletAction('submit this course for review');
         wallet = auth.wallet;
       } catch (error) {
-        setWorkflowMessage(error instanceof Error ? error.message : 'Connect your wallet to submit this course for review.');
+        setWorkflowMessage(error instanceof Error ? error.message : 'Sign in to submit this course for review.');
         return;
       }
     }
@@ -961,7 +982,7 @@ const buildCoursePayload = (creatorAddress: string) => {
         const auth = await requireWalletAction('publish this course');
         wallet = auth.wallet;
       } catch (error) {
-        setWorkflowMessage(error instanceof Error ? error.message : 'Connect your wallet to publish this course.');
+        setWorkflowMessage(error instanceof Error ? error.message : 'Sign in to publish this course.');
         return;
       }
     }
@@ -1081,7 +1102,7 @@ const buildCoursePayload = (creatorAddress: string) => {
           {/* Main Content */}
           <div className={`flex-1 ${simpleMode ? 'overflow-visible rounded-2xl border border-[#d4af37]/20 bg-[#101010]' : 'overflow-y-auto'}`}>
 
-            {/* ── DASHBOARD ── */}
+            {/* â”€â”€ DASHBOARD â”€â”€ */}
             {activeTab === 'dashboard' && (
               <div className="p-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -1120,8 +1141,8 @@ const buildCoursePayload = (creatorAddress: string) => {
                               <h3 className="text-white font-semibold">{course.title}</h3>
                               <p className="text-gray-400 text-sm">
                                 {course.status === 'published'
-                                  ? `${course.students.toLocaleString()} students • ⭐ ${course.rating}`
-                                  : `${course.progress}% complete • Last edited ${course.lastUpdated}`}
+                                  ? `${course.students.toLocaleString()} students â€¢ â­ ${course.rating}`
+                                  : `${course.progress}% complete â€¢ Last edited ${course.lastUpdated}`}
                               </p>
                             </div>
                           </div>
@@ -1147,7 +1168,7 @@ const buildCoursePayload = (creatorAddress: string) => {
               </div>
             )}
 
-            {/* ── COURSE BASICS ── */}
+            {/* â”€â”€ COURSE BASICS â”€â”€ */}
             {activeTab === 'basics' && (
               <div className="p-6 max-w-3xl space-y-6">
                 {simpleMode ? (
@@ -1360,7 +1381,7 @@ const buildCoursePayload = (creatorAddress: string) => {
                           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                             <ImageIcon size={32} className="text-gray-500" />
                             <span className="text-gray-500 text-sm">Click to upload</span>
-                            <span className="text-gray-600 text-xs">1280×720 recommended</span>
+                            <span className="text-gray-600 text-xs">1280Ã—720 recommended</span>
                           </div>
                         )}
                       </div>
@@ -1394,13 +1415,13 @@ const buildCoursePayload = (creatorAddress: string) => {
               </div>
             )}
 
-            {/* ── CURRICULUM ── */}
+            {/* â”€â”€ CURRICULUM â”€â”€ */}
             {activeTab === 'curriculum' && (
               <div className="p-6 space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
                       <h2 className="text-lg font-bold text-white">{simpleMode ? 'Lessons and path' : 'Course Curriculum'}</h2>
-                        <p className="text-gray-400 text-sm">{modules.length} modules • {totalLessons} lessons</p>
+                        <p className="text-gray-400 text-sm">{modules.length} modules â€¢ {totalLessons} lessons</p>
                       </div>
                   <button onClick={addModule} className="flex items-center gap-2 px-4 py-2 bg-[#d4af37]/10 text-[#d4af37] rounded-lg hover:bg-[#d4af37]/20 transition-colors">
                     <Plus size={18} /> Add Module
@@ -1519,7 +1540,7 @@ const buildCoursePayload = (creatorAddress: string) => {
               </div>
             )}
 
-            {/* ── MEDIA LIBRARY ── */}
+            {/* â”€â”€ MEDIA LIBRARY â”€â”€ */}
             {activeTab === 'media' && (
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -1542,7 +1563,7 @@ const buildCoursePayload = (creatorAddress: string) => {
                 >
                   <Film size={48} className="text-gray-600 mx-auto mb-3" />
                   <h3 className="text-white font-medium mb-1">Drag & drop or click to upload</h3>
-                  <p className="text-gray-500 text-sm">MP4, MOV, AVI, PDF, ZIP — up to 4GB per file</p>
+                  <p className="text-gray-500 text-sm">MP4, MOV, AVI, PDF, ZIP â€” up to 4GB per file</p>
                   {uploadingLesson === 'media' && (
                     <div className="mt-4 max-w-xs mx-auto">
                       <div className="flex justify-between text-sm mb-1">
@@ -1587,7 +1608,7 @@ const buildCoursePayload = (creatorAddress: string) => {
               </div>
             )}
 
-            {/* ── PRICING ── */}
+            {/* â”€â”€ PRICING â”€â”€ */}
             {activeTab === 'pricing' && (
               <div className="p-6 max-w-2xl space-y-6">
                 <h2 className="text-xl font-bold text-white">{simpleMode ? 'Price and payments' : 'Pricing & Monetisation'}</h2>
@@ -1660,7 +1681,7 @@ const buildCoursePayload = (creatorAddress: string) => {
               </div>
             )}
 
-            {/* ── SETTINGS ── */}
+            {/* â”€â”€ SETTINGS â”€â”€ */}
             {activeTab === 'settings' && (
               <div className="p-6 max-w-2xl space-y-6">
                 <h2 className="text-xl font-bold text-white">{simpleMode ? 'Rules and visibility' : 'Course Settings'}</h2>
@@ -1709,7 +1730,7 @@ const buildCoursePayload = (creatorAddress: string) => {
           </div>
         </div>
 
-      {/* ── LESSON EDITOR MODAL ── */}
+      {/* â”€â”€ LESSON EDITOR MODAL â”€â”€ */}
       {editingLesson && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6">
           <div className="bg-[#141414] rounded-2xl border border-[#d4af37]/30 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1815,3 +1836,6 @@ function parseNumericPrice(label: string) {
   const match = label.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
   return match ? match[1] : '';
 }
+
+
+

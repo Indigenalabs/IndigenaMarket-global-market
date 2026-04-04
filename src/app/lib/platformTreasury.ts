@@ -211,12 +211,16 @@ export async function listTreasuryDashboard(): Promise<TreasuryDashboard> {
     supabase.from('split_distributions').select('*').order('created_at', { ascending: false }),
     supabase.from('champion_sponsorship_disbursements').select('*').order('scheduled_for', { ascending: false })
   ]);
-  return {
+  const dashboard = {
     treasuries: ((treasuries.data || []) as any[]).map((row) => ({ id: String(row.id || ''), accountId: String(row.account_id || ''), accountSlug: String(row.account_slug || ''), label: String(row.label || ''), restrictedBalance: Number(row.restricted_balance || 0), unrestrictedBalance: Number(row.unrestricted_balance || 0), pendingDisbursementAmount: Number(row.pending_disbursement_amount || 0), nextDisbursementDate: String(row.next_disbursement_date || ''), reportingNote: String(row.reporting_note || '') })),
-    ledger: ((ledger.data || []) as any[]).map((row) => ({ id: String(row.id || ''), accountId: String(row.account_id || ''), type: String(row.type || 'sale-split') as TreasuryLedgerEntryRecord['type'], amount: Number(row.amount || 0), currency: String(row.currency || 'USD'), counterparty: String(row.counterparty || ''), note: String(row.note || ''), status: String(row.status || 'posted') as TreasuryLedgerEntryRecord['status'], createdAt: String(row.created_at || '') })),
-    splitDistributions: ((splitDistributions.data || []) as any[]).map((row) => ({ id: String(row.id || ''), splitRuleId: String(row.split_rule_id || ''), sourceType: String(row.source_type || 'sale') as SplitDistributionRecord['sourceType'], sourceId: String(row.source_id || ''), grossAmount: Number(row.gross_amount || 0), currency: String(row.currency || 'USD'), distributions: Array.isArray(row.distributions) ? row.distributions : [], createdAt: String(row.created_at || '') })),
-    championDisbursements: ((championDisbursements.data || []) as any[]).map((row) => ({ id: String(row.id || ''), sponsorshipId: String(row.sponsorship_id || ''), championId: String(row.champion_id || ''), targetAccountId: String(row.target_account_id || ''), amount: Number(row.amount || 0), status: String(row.status || 'scheduled') as ChampionSponsorshipDisbursementRecord['status'], scheduledFor: String(row.scheduled_for || ''), paidOutAt: String(row.paid_out_at || ''), note: String(row.note || '') }))
+    ledger: ((ledger.data || []) as any[]).map((row) => ({ id: String(row.id || ''), accountId: String(row.account_id || ''), type: String(row.type || 'sale-split') as TreasuryLedgerEntryRecord['type'], amount: Number(row.amount || 0), currency: String(row.currency || 'USD'), counterparty: String(row.counterparty || ''), note: String(row.note || ''), status: String(row.status || 'posted') as TreasuryLedgerEntryRecord['status'], createdAt: String(row.created_at || ''), sourceReference: String(row.source_reference || '') || undefined })),
+    splitDistributions: ((splitDistributions.data || []) as any[]).map((row) => ({ id: String(row.id || ''), splitRuleId: String(row.split_rule_id || ''), sourceType: String(row.source_type || 'sale') as SplitDistributionRecord['sourceType'], sourceId: String(row.source_id || ''), grossAmount: Number(row.gross_amount || 0), currency: String(row.currency || 'USD'), distributions: Array.isArray(row.distributions) ? row.distributions : [], createdAt: String(row.created_at || ''), sourceReference: String(row.source_reference || '') || undefined })),
+    championDisbursements: ((championDisbursements.data || []) as any[]).map((row) => ({ id: String(row.id || ''), sponsorshipId: String(row.sponsorship_id || ''), championId: String(row.champion_id || ''), targetAccountId: String(row.target_account_id || ''), amount: Number(row.amount || 0), status: String(row.status || 'scheduled') as ChampionSponsorshipDisbursementRecord['status'], scheduledFor: String(row.scheduled_for || ''), paidOutAt: String(row.paid_out_at || ''), note: String(row.note || ''), sourceReference: String(row.source_reference || '') || undefined }))
   };
+  if (!dashboard.treasuries.length && !dashboard.splitDistributions.length && !dashboard.ledger.length) {
+    return readRuntime();
+  }
+  return dashboard;
 }
 
 export async function getTreasuryByCommunitySlug(slug: string) {
@@ -270,7 +274,7 @@ export async function recordRevenueSplitDistribution(input: {
 
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();
-    await supabase.from('split_distributions').insert({
+    const { error } = await supabase.from('split_distributions').insert({
       id: distribution.id,
       split_rule_id: distribution.splitRuleId,
       source_type: distribution.sourceType,
@@ -278,9 +282,10 @@ export async function recordRevenueSplitDistribution(input: {
       gross_amount: distribution.grossAmount,
       currency: distribution.currency,
       distributions: distribution.distributions,
-      created_at: distribution.createdAt
+      created_at: distribution.createdAt,
+      source_reference: distribution.sourceReference || null
     });
-    return distribution;
+    if (!error) return distribution;
   }
   const runtime = await readRuntime();
   runtime.splitDistributions.unshift(distribution);
@@ -369,6 +374,7 @@ export async function recordTreasuryContribution(input: {
   currency?: string;
   counterparty: string;
   note: string;
+  type?: TreasuryLedgerEntryRecord['type'];
   restricted?: boolean;
   sourceReference?: string;
 }) {
@@ -382,7 +388,7 @@ export async function recordTreasuryContribution(input: {
   const entry: TreasuryLedgerEntryRecord = {
     id: id('ledger'),
     accountId: input.accountId,
-    type: 'sponsorship',
+    type: input.type || 'sale-split',
     amount: Number(input.amount || 0),
     currency: input.currency || 'USD',
     counterparty: input.counterparty,
@@ -394,7 +400,7 @@ export async function recordTreasuryContribution(input: {
 
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();
-    await supabase.from('treasury_ledger_entries').insert({
+    const { error } = await supabase.from('treasury_ledger_entries').insert({
       id: entry.id,
       account_id: entry.accountId,
       type: entry.type,
@@ -403,9 +409,10 @@ export async function recordTreasuryContribution(input: {
       counterparty: entry.counterparty,
       note: entry.note,
       status: entry.status,
-      created_at: entry.createdAt
+      created_at: entry.createdAt,
+      source_reference: entry.sourceReference || null
     });
-    return entry;
+    if (!error) return entry;
   }
 
   const runtime = await readRuntime();

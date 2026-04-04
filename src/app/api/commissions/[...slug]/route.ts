@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createCustomWorkRequest, listCustomWorkRequests } from '@/app/lib/customWork';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ slug: 
   if (!body) return NextResponse.json({ message: 'Invalid request payload.' }, { status: 400 });
   const actorId = resolveRequestActorId(req);
   if (actorId === 'guest') {
-    return NextResponse.json({ message: 'Wallet sign-in is required to submit commission requests.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in is required to submit commission requests.' }, { status: 401 });
   }
 
   const request = await createCustomWorkRequest({
@@ -44,3 +44,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ slug: 
   });
   return NextResponse.json({ data: { request } }, { status: 201 });
 }
+
+
+

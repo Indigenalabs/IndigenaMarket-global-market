@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { resolveRequestWallet } from '@/app/lib/requestIdentity';
 import { createVerificationPurchase } from '@/app/lib/verificationPurchases';
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to purchase verification services.',
+    guestMessage: 'Sign in to purchase verification services.',
     forbiddenMessage: 'You can only purchase verification services for your own creator profile.',
     select: 'owner_actor_id'
   });
@@ -80,3 +80,6 @@ export async function POST(req: NextRequest) {
     checkoutSessionId: session.id
   });
 }
+
+
+

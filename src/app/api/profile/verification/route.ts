@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { updateCreatorProfileVerificationWorkflow } from '@/app/profile/data/profileShowcase';
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to manage verification.',
+    guestMessage: 'Sign in to manage verification.',
     forbiddenMessage: 'You can only manage your own verification workflow.',
     select: 'owner_actor_id, verification_workflow'
   });
@@ -54,3 +54,6 @@ export async function POST(req: NextRequest) {
   const profile = updateCreatorProfileVerificationWorkflow(slug, workflowId, nextStatus);
   return NextResponse.json({ data: { ok: true, profile } });
 }
+
+
+

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import {
@@ -43,7 +43,7 @@ export default function PhysicalWallet({ compact = false }: PhysicalWalletProps)
           </div>
           <div>
             <h3 className="text-white font-semibold">INDI Wallet</h3>
-            <p className="text-gray-500 text-xs">Connect to pay &amp; earn rewards</p>
+            <p className="text-gray-500 text-xs">Sign in to pay and earn rewards</p>
           </div>
         </div>
 
@@ -51,7 +51,7 @@ export default function PhysicalWallet({ compact = false }: PhysicalWalletProps)
           {[
             'Pay directly for physical items',
             'Earn 2% INDI cashback on every purchase',
-            'Instant maker payouts — no delays',
+            'Instant maker payouts â€” no delays',
           ].map((feat) => (
             <div key={feat} className="flex items-center gap-2 text-sm text-gray-400">
               <ShieldCheck size={13} className="text-[#d4af37] flex-shrink-0" />
@@ -65,7 +65,7 @@ export default function PhysicalWallet({ compact = false }: PhysicalWalletProps)
           className="w-full py-3 bg-[#d4af37] text-black font-semibold rounded-xl hover:bg-[#f4e4a6] transition-colors flex items-center justify-center gap-2"
         >
           <Link2 size={16} />
-          Connect Wallet
+          Sign In
         </button>
       </div>
     );
@@ -86,7 +86,7 @@ export default function PhysicalWallet({ compact = false }: PhysicalWalletProps)
                 <span className="text-white text-2xl font-bold">{balance.toLocaleString()}</span>
                 <span className="text-[#d4af37] text-sm font-medium">INDI</span>
               </div>
-              <p className="text-gray-500 text-xs">≈ ${(balance * RATE).toFixed(2)} USD</p>
+              <p className="text-gray-500 text-xs">â‰ˆ ${(balance * RATE).toFixed(2)} USD</p>
             </div>
           </div>
           <button
@@ -187,3 +187,6 @@ export default function PhysicalWallet({ compact = false }: PhysicalWalletProps)
     </div>
   );
 }
+
+
+

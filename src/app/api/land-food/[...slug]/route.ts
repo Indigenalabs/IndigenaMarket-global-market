@@ -165,6 +165,14 @@ async function createOrder(req: NextRequest) {
     disputeAmount: 0,
     creatorNetAmount: Number(quote.creatorNet),
     disputeReason: '',
+    sourceType: 'listing',
+    sourceId: listingId,
+    metadata: {
+      currency: String(order.currency || body.currency || 'INDI'),
+      orderId: String(order.id),
+      receiptId: String(order.receipt_id || ''),
+      listingId
+    },
     createdAt: String(order.created_at)
   });
 

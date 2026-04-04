@@ -777,6 +777,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
           disputeAmount: 0,
           creatorNetAmount: Number(paymentBreakdown.creatorNet || booking.total_amount || 0),
           disputeReason: '',
+          sourceType: 'experience',
+          sourceId: String(booking.experience_id || b),
+          metadata: {
+            currency: String(booking.currency || 'USD'),
+            bookingId: b,
+            experienceId: String(booking.experience_id || b),
+            receiptId: `rcpt-${b}`
+          },
           createdAt: new Date().toISOString()
         });
       }

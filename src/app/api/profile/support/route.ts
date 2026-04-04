@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import { createCreatorProfileSupportRequest } from '@/app/profile/data/profileShowcase';
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to contact support.',
+    guestMessage: 'Sign in to contact support.',
     forbiddenMessage: 'You can only create support requests for your own studio.',
     select: 'owner_actor_id, support_requests'
   });
@@ -49,3 +49,6 @@ export async function POST(req: NextRequest) {
   const { profile, request } = createCreatorProfileSupportRequest(slug, { title, detail, channel });
   return NextResponse.json({ data: { ok: true, profile, request } });
 }
+
+
+

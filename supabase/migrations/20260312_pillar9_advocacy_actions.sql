@@ -1,4 +1,4 @@
-﻿-- Pillar 9: Advocacy & Legal action storage
+-- Pillar 9: Advocacy & Legal action storage
 -- Run this in Supabase SQL editor or via supabase migration tooling.
 
 create extension if not exists pgcrypto;
@@ -100,58 +100,72 @@ alter table public.adv_audit_events enable row level security;
 -- App writes through server route with service role key (bypasses RLS).
 -- These policies are for future direct client access and least privilege defaults.
 
-create policy if not exists "adv_case_intakes_select_own"
+drop policy if exists "adv_case_intakes_select_own" on public.adv_case_intakes;
+create policy "adv_case_intakes_select_own"
   on public.adv_case_intakes for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_case_intakes_insert_own"
+drop policy if exists "adv_case_intakes_insert_own" on public.adv_case_intakes;
+create policy "adv_case_intakes_insert_own"
   on public.adv_case_intakes for insert
   with check (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_pro_bono_requests_select_own"
+drop policy if exists "adv_pro_bono_requests_select_own" on public.adv_pro_bono_requests;
+create policy "adv_pro_bono_requests_select_own"
   on public.adv_pro_bono_requests for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_pro_bono_requests_insert_own"
+drop policy if exists "adv_pro_bono_requests_insert_own" on public.adv_pro_bono_requests;
+create policy "adv_pro_bono_requests_insert_own"
   on public.adv_pro_bono_requests for insert
   with check (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_alert_subscriptions_select_own"
+drop policy if exists "adv_alert_subscriptions_select_own" on public.adv_alert_subscriptions;
+create policy "adv_alert_subscriptions_select_own"
   on public.adv_alert_subscriptions for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_alert_subscriptions_insert_own"
+drop policy if exists "adv_alert_subscriptions_insert_own" on public.adv_alert_subscriptions;
+create policy "adv_alert_subscriptions_insert_own"
   on public.adv_alert_subscriptions for insert
   with check (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_donations_select_own"
+drop policy if exists "adv_donations_select_own" on public.adv_donations;
+create policy "adv_donations_select_own"
   on public.adv_donations for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_donations_insert_own"
+drop policy if exists "adv_donations_insert_own" on public.adv_donations;
+create policy "adv_donations_insert_own"
   on public.adv_donations for insert
   with check (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_consultation_requests_select_own"
+drop policy if exists "adv_consultation_requests_select_own" on public.adv_consultation_requests;
+create policy "adv_consultation_requests_select_own"
   on public.adv_consultation_requests for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_consultation_requests_insert_own"
+drop policy if exists "adv_consultation_requests_insert_own" on public.adv_consultation_requests;
+create policy "adv_consultation_requests_insert_own"
   on public.adv_consultation_requests for insert
   with check (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_policy_actions_select_own"
+drop policy if exists "adv_policy_actions_select_own" on public.adv_policy_actions;
+create policy "adv_policy_actions_select_own"
   on public.adv_policy_actions for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_policy_actions_insert_own"
+drop policy if exists "adv_policy_actions_insert_own" on public.adv_policy_actions;
+create policy "adv_policy_actions_insert_own"
   on public.adv_policy_actions for insert
   with check (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_audit_events_select_own"
+drop policy if exists "adv_audit_events_select_own" on public.adv_audit_events;
+create policy "adv_audit_events_select_own"
   on public.adv_audit_events for select
   using (actor_id = auth.uid()::text);
 
-create policy if not exists "adv_audit_events_insert_own"
+drop policy if exists "adv_audit_events_insert_own" on public.adv_audit_events;
+create policy "adv_audit_events_insert_own"
   on public.adv_audit_events for insert
   with check (actor_id = auth.uid()::text);

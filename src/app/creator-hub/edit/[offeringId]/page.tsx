@@ -1,6 +1,7 @@
 import CreatorHubOfferingEditorClient from '@/app/profile/components/CreatorHubOfferingEditorClient';
 import ProfileWorkspaceShell from '@/app/profile/components/ProfileWorkspaceShell';
 import { loadProfileForInitialRender } from '@/app/profile/lib/profileServer';
+import { ensureCurrentAccountIdentityFromSession } from '@/app/lib/accountAuthService';
 
 export default async function CreatorHubOfferingEditPage({
   params
@@ -8,7 +9,8 @@ export default async function CreatorHubOfferingEditPage({
   params: Promise<{ offeringId: string }>;
 }) {
   const { offeringId } = await params;
-  const profile = await loadProfileForInitialRender('aiyana-redbird');
+  const account = await ensureCurrentAccountIdentityFromSession().catch(() => null);
+  const profile = await loadProfileForInitialRender(account?.creatorProfileSlug || 'aiyana-redbird');
   const offering = profile.offerings.find((entry) => entry.id === offeringId) ?? null;
 
   return (

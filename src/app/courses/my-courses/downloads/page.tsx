@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -64,7 +64,7 @@ export default function DownloadsPage() {
       setReceipts(data);
     } catch {
       setReceipts([]);
-      setError('Unable to load receipts yet. Connect your wallet to load your receipt history.');
+      setError('Unable to load receipts yet. Sign in to load your receipt history.');
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export default function DownloadsPage() {
       setReceipts(data);
     } catch (connectError) {
       setReceipts([]);
-      setError(connectError instanceof Error ? connectError.message : 'Connect your wallet to view your course receipts.');
+      setError(connectError instanceof Error ? connectError.message : 'Sign in to view your course receipts.');
     } finally {
       setLoading(false);
     }
@@ -256,7 +256,7 @@ export default function DownloadsPage() {
                     className="inline-flex items-center gap-2 rounded-lg border border-[#d4af37]/30 px-3 py-2 text-xs font-medium text-[#d4af37] transition-colors hover:bg-[#d4af37]/10"
                   >
                     <Wallet size={14} />
-                    Connect Wallet
+                    Sign In
                   </button>
                 </div>
               </div>
@@ -335,3 +335,6 @@ export default function DownloadsPage() {
     </div>
   );
 }
+
+
+

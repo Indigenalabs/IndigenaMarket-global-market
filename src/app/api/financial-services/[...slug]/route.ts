@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createBnplApplication, listFinancialServices, purchaseTaxReport, requestInstantPayout } from '@/app/lib/financialServices';
 import { ensureFinancialServiceAccess, recordGovernanceAuditEvent } from '@/app/lib/complianceGovernance';
 import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestIdentity';
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   const actorId = resolveRequestActorId(req);
   const walletAddress = resolveRequestWallet(req);
   if (actorId === 'guest') {
-    return NextResponse.json({ message: 'Wallet sign-in is required for financial services.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in is required for financial services.' }, { status: 401 });
   }
   if (slug[0] === 'instant-payout') {
     await ensureFinancialServiceAccess({ actorId, walletAddress, service: 'instant-payout' });
@@ -41,3 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   }
   return NextResponse.json({ message: 'Unsupported financial services endpoint' }, { status: 404 });
 }
+
+
+

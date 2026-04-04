@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
@@ -66,21 +66,21 @@ export default function WalletIntegration({
             <Wallet size={28} className="text-[#d4af37]" />
           </div>
           <div className="flex-1">
-            <h3 className="text-white font-semibold text-lg">Connect Your Wallet</h3>
-            <p className="text-gray-400 text-sm">Connect with Xumm to buy, sell, and bid on NFTs</p>
+            <h3 className="text-white font-semibold text-lg">Sign in</h3>
+            <p className="text-gray-400 text-sm">Sign in to unlock your managed wallet and buy, sell, and bid on digital collectibles</p>
           </div>
           <button 
             onClick={onConnect}
             className="px-6 py-3 bg-[#d4af37] text-black font-semibold rounded-lg hover:bg-[#f4e4a6] transition-colors"
           >
-            Connect
+            Sign In
           </button>
         </div>
         
         <div className="mt-4 pt-4 border-t border-[#d4af37]/20">
           <div className="flex items-center gap-2 text-gray-400 text-xs">
             <Shield size={14} className="text-green-400" />
-            <span>Secure connection via Xumm Wallet</span>
+            <span>Your Indigena account includes a secure managed wallet</span>
           </div>
         </div>
       </div>
@@ -224,3 +224,6 @@ export default function WalletIntegration({
     </div>
   );
 }
+
+
+

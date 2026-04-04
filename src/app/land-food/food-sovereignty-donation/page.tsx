@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { Heart, Leaf, Sprout } from 'lucide-react';
@@ -87,7 +87,7 @@ export default function FoodSovereigntyDonationPage() {
                   </div>
                   <span className="text-lg font-semibold text-[#d4af37]">${tier.amount}</span>
                 </div>
-                <p className="mt-3 text-xs text-[#d4af37]">{donating === tier.label ? 'Opening wallet...' : 'Donate with secure wallet sign-in'}</p>
+                <p className="mt-3 text-xs text-[#d4af37]">{donating === tier.label ? 'Opening secure checkout...' : 'Donate with secure Sign in'}</p>
               </button>
             ))}
           </div>
@@ -107,7 +107,7 @@ export default function FoodSovereigntyDonationPage() {
               disabled={donating === 'Custom Food Sovereignty Donation'}
               className="mt-3 w-full rounded-xl bg-[#d4af37] px-4 py-3 text-sm font-semibold text-black transition-colors hover:bg-[#f4d370] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {donating === 'Custom Food Sovereignty Donation' ? 'Opening Wallet...' : 'Donate Custom Amount'}
+              {donating === 'Custom Food Sovereignty Donation' ? 'Opening secure checkout...' : 'Donate Custom Amount'}
             </button>
           </div>
 
@@ -121,3 +121,6 @@ export default function FoodSovereigntyDonationPage() {
     </LandFoodFrame>
   );
 }
+
+
+

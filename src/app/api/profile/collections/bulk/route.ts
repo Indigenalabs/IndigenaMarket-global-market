@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner } from '@/app/lib/creatorProfileAccess';
 import {
   updateCreatorProfileCollectionsBulk,
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const owner = await requireCreatorProfileOwner(req, slug, {
-    guestMessage: 'Connect your wallet to manage collections.',
+    guestMessage: 'Sign in to manage collections.',
     forbiddenMessage: 'You can only manage your own collections.',
     select: 'owner_actor_id, presentation_settings'
   });
@@ -96,3 +96,6 @@ export async function POST(req: NextRequest) {
     }
   });
 }
+
+
+

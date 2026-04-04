@@ -1,4 +1,4 @@
-import { getStoredWalletAddress } from './walletStorage';
+﻿import { getStoredWalletAddress } from './walletStorage';
 
 const EXTERNAL_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '') || '';
@@ -34,6 +34,8 @@ export function getClientAuthHeaders() {
   const wallet = getStoredWalletAddress();
   const jwt = (window.localStorage.getItem('indigena_user_jwt') || '').trim();
   const userId = (window.localStorage.getItem('indigena_user_id') || '').trim();
+  const email = (window.localStorage.getItem('indigena_user_email') || '').trim();
+  const displayName = (window.localStorage.getItem('indigena_user_display_name') || '').trim();
   const adminSigned = (window.localStorage.getItem('indigena_admin_signed') || '').trim().toLowerCase() === 'true';
   const headers: Record<string, string> = {};
   if (wallet) {
@@ -42,6 +44,8 @@ export function getClientAuthHeaders() {
   } else if (userId) {
     headers['x-actor-id'] = userId;
   }
+  if (email) headers['x-account-email'] = email;
+  if (displayName) headers['x-account-display-name'] = displayName;
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
   if (adminSigned) headers['x-admin-signed'] = 'true';
   return headers;
@@ -102,3 +106,4 @@ export function buildApiUrl(path: string, query: Record<string, string | number 
   const qs = params.toString();
   return `${API_BASE_URL}${path}${qs ? `?${qs}` : ''}`;
 }
+
