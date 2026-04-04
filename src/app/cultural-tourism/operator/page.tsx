@@ -23,7 +23,9 @@ import { requireWalletAction } from '@/app/lib/requireWalletAction';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
+import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
 import CulturalTourismFrame from '../components/CulturalTourismFrame';
+import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
 import { fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
 
@@ -64,6 +66,8 @@ function CulturalTourismOperatorPageContent() {
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
   const requestedProfileSlug = searchParams.get('slug') || '';
+  const accountSlug = searchParams.get('accountSlug') || '';
+  const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [wallet, setWallet] = useState('demo-operator-wallet');
@@ -256,6 +260,7 @@ function CulturalTourismOperatorPageContent() {
         if (editOfferingId) {
           await updateProfileOffering({
           slug: activeProfileSlug,
+          accountSlug: accountSlug || undefined,
           offeringId: editOfferingId,
           title: title.trim(),
           blurb: summary.trim(),
@@ -395,8 +400,10 @@ function CulturalTourismOperatorPageContent() {
             <h1 className="text-2xl font-bold text-white">{simpleMode ? 'Add a trip or experience' : 'Cultural Tourism Operator Dashboard'}</h1>
             <p className="text-gray-400 text-sm">{simpleMode ? 'Start with one experience.' : 'Phase 1-3 operator tools: listings, calendar readiness, payout visibility, and verification lane.'}</p>
           </div>
-          <Link href={returnTo} className="px-4 py-2 rounded-lg border border-[#d4af37]/30 text-[#d4af37]">{simpleMode ? 'Back to simple home' : 'Back to Creator Hub'}</Link>
+          <Link href={returnToHref} className="px-4 py-2 rounded-lg border border-[#d4af37]/30 text-[#d4af37]">{simpleMode ? 'Back to simple home' : 'Back to Creator Hub'}</Link>
         </div>
+
+        <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
 
         <div className={`grid gap-6 ${simpleMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-4'}`}>
           <div className={`bg-[#141414] border border-[#d4af37]/20 rounded-xl p-4 flex flex-wrap gap-2 items-center ${simpleMode ? '' : 'md:col-span-4'}`}>
@@ -554,7 +561,7 @@ function CulturalTourismOperatorPageContent() {
             <button onClick={create} disabled={!canSubmit || submitting} className="w-full px-3 py-2 rounded-lg bg-[#d4af37] text-black font-medium text-sm disabled:opacity-60">{submitting ? 'Submitting...' : simpleMode ? 'Save this experience' : 'Submit Listing'}</button>
             {simpleMode ? (
               <Link
-                href={`/cultural-tourism/operator?returnTo=/creator-hub`}
+                href={appendAccountSlugToHref('/cultural-tourism/operator?returnTo=/creator-hub', accountSlug || undefined)}
                 className="inline-flex w-full items-center justify-center rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 px-3 py-2 text-sm font-semibold text-[#f3ddb1]"
               >
                 Next: bookable dates

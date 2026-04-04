@@ -4,6 +4,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Bell,
   BookOpen,
@@ -105,6 +106,10 @@ import {
 import { VERIFICATION_PRODUCTS, type VerificationProductId } from '@/app/lib/verificationRevenue';
 import { fetchPlatformAccounts } from '@/app/lib/platformAccountsApi';
 import type { PlatformAccountRecord } from '@/app/lib/platformAccounts';
+import {
+  getCommunityStorefrontState,
+  isCommunityStorefrontAccount
+} from '@/app/lib/communityStorefrontState';
 import { fetchLaunchpadCampaignsForAccount, updateLaunchpadCampaignStatusApi } from '@/app/lib/launchpadApi';
 import type { LaunchpadCampaign, LaunchpadCampaignStatus } from '@/app/lib/launchpad';
 import {
@@ -259,6 +264,8 @@ const EMBEDDED_CREATE_PILLARS = ['freelancing', 'language-heritage', 'land-food'
 const NATIVE_CREATE_PILLARS = ['digital-arts', 'physical-items', 'courses', 'cultural-tourism'] as const;
 
 export default function CreatorHubDashboardClient({ profile: initialProfile, slug }: { profile: CreatorProfileRecord; slug: string; }) {
+  const searchParams = useSearchParams();
+  const requestedAccountSlug = searchParams.get('accountSlug') || '';
   const [profile, setProfile] = useState(initialProfile);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('simple');
   const [followers, setFollowers] = useState<ProfileConnection[]>([]);
@@ -494,6 +501,17 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
   }, [slug]);
 
   useEffect(() => {
+    if (!requestedAccountSlug) return;
+    if (requestedAccountSlug === slug) {
+      setActiveAccountSlug(slug);
+      return;
+    }
+    if (platformAccounts.some((entry) => entry.slug === requestedAccountSlug)) {
+      setActiveAccountSlug(requestedAccountSlug);
+    }
+  }, [platformAccounts, requestedAccountSlug, slug]);
+
+  useEffect(() => {
     if (!activeAccountSlug) {
       setLaunchpadCampaigns([]);
       return;
@@ -688,10 +706,28 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
     activePlatformAccount && ['community', 'tribe', 'collective'].includes(activePlatformAccount.accountType)
       ? activePlatformAccount.slug
       : '';
+  const activeCommunityStorefrontState = useMemo(
+    () =>
+      isCommunityStorefrontAccount(activePlatformAccount)
+        ? getCommunityStorefrontState(activePlatformAccount.verificationStatus)
+        : null,
+    [activePlatformAccount]
+  );
   const withStorefrontContext = (href: string) => {
-    const scopedHref = communityPublishingAccountSlug
-      ? `${href}${href.includes('?') ? '&' : '?'}accountSlug=${encodeURIComponent(communityPublishingAccountSlug)}`
-      : href;
+    if (!communityPublishingAccountSlug) {
+      return withSimpleMode(href);
+    }
+    const [pathname, rawQuery = ''] = href.split('?');
+    const params = new URLSearchParams(rawQuery);
+    params.set('accountSlug', communityPublishingAccountSlug);
+    const returnTo = params.get('returnTo');
+    if (returnTo) {
+      const [returnPath, returnQuery = ''] = returnTo.split('?');
+      const returnParams = new URLSearchParams(returnQuery);
+      returnParams.set('accountSlug', communityPublishingAccountSlug);
+      params.set('returnTo', `${returnPath}${returnParams.toString() ? `?${returnParams.toString()}` : ''}`);
+    }
+    const scopedHref = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`;
     return withSimpleMode(scopedHref);
   };
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
@@ -2178,6 +2214,20 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 Creator Free supports up to {profile.creatorPlanCapabilities?.maxListings ?? 0} active listings. You currently have {profile.offerings.length}. Upgrade to Creator or Studio for unlimited publishing and advanced analytics.
               </div>
             ) : null}
+            {activeCommunityStorefrontState && activePlatformAccount ? (
+              <div className="mb-4 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Publishing as {activePlatformAccount.displayName}</p>
+                    <p className="mt-2 text-sm font-medium text-white">{activeCommunityStorefrontState.title}</p>
+                    <p className="mt-2 text-sm leading-7 text-gray-400">{activeCommunityStorefrontState.detail}</p>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${activeCommunityStorefrontState.badgeClassName}`}>
+                    {activeCommunityStorefrontState.badgeLabel}
+                  </span>
+                </div>
+              </div>
+            ) : null}
             {workspaceMode === 'simple' ? (
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-[#d4af37]/20 bg-[#d4af37]/10 px-4 py-4 text-sm text-[#f3deb1]">
@@ -2256,7 +2306,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 </p>
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                   <StatusRow title="Full pillar editor" detail="Opens the native publishing experience with Creator Hub return routing." actionLabel="Ready" />
-                  <StatusRow title="Creator-first path" detail="Best for deeper media uploads, scheduling, pricing, and pillar-specific settings." actionLabel="Advanced" />
+                  <StatusRow title="Creator-first path" detail="Best for deeper media uploads, scheduling, pricing, and pillar-specific settings." actionLabel={activeCommunityStorefrontState ? activeCommunityStorefrontState.badgeLabel : 'Advanced'} />
                 </div>
                 <Link href={withStorefrontContext(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
                   {workspaceMode === 'simple' ? 'Keep going on the full page' : 'Open full workflow'}
@@ -2298,6 +2348,20 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 <Panel title={selectedStudioOffering ? selectedStudioOffering.title : 'Listing editor'} eyebrow="In-hub merchandising" icon={Palette}>
                   {selectedStudioOffering ? (
                     <div className="space-y-4">
+                      {activeCommunityStorefrontState && activePlatformAccount ? (
+                        <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Storefront publish state</p>
+                              <p className="mt-2 text-sm font-medium text-white">{activePlatformAccount.displayName}</p>
+                              <p className="mt-2 text-sm leading-7 text-gray-400">{activeCommunityStorefrontState.detail}</p>
+                            </div>
+                            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${activeCommunityStorefrontState.badgeClassName}`}>
+                              {activeCommunityStorefrontState.badgeLabel}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="grid gap-4 sm:grid-cols-2">
                         <FieldInput label="Title" value={studioOfferingDraft.title} onChange={(value) => setStudioOfferingDraft((current) => ({ ...current, title: value }))} />
                         <FieldInput label="Price label" value={studioOfferingDraft.priceLabel} onChange={(value) => setStudioOfferingDraft((current) => ({ ...current, priceLabel: value }))} />
@@ -2399,10 +2463,10 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                         <button onClick={handleSaveStudioOffering} disabled={isSavingStudioOffering} className="rounded-full bg-[#d4af37] px-5 py-3 text-sm font-semibold text-black hover:bg-[#f4d370] disabled:opacity-60">
                           {isSavingStudioOffering ? 'Saving...' : 'Save in hub'}
                         </button>
-                        <Link href={getCreatorHubEditHref(selectedStudioOffering.id)} className="rounded-full border border-white/10 px-5 py-3 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white">
+                        <Link href={getCreatorHubEditHref(selectedStudioOffering.id, communityPublishingAccountSlug || undefined)} className="rounded-full border border-white/10 px-5 py-3 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white">
                           Open full hub editor
                         </Link>
-                        <Link href={getNativeCreatorEditorHref(selectedStudioOffering, profile.slug)} className="rounded-full border border-[#d4af37]/20 px-5 py-3 text-sm text-[#d4af37] hover:border-[#d4af37]/45 hover:text-[#f4d370]">
+                        <Link href={getNativeCreatorEditorHref(selectedStudioOffering, profile.slug, communityPublishingAccountSlug || undefined)} className="rounded-full border border-[#d4af37]/20 px-5 py-3 text-sm text-[#d4af37] hover:border-[#d4af37]/45 hover:text-[#f4d370]">
                           Advanced pillar editor
                         </Link>
                       </div>

@@ -13,7 +13,9 @@ import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/app/components/Sidebar';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
+import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
+import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
 import { assertLegacyListingPublishAllowed, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
 
@@ -1058,6 +1060,8 @@ function AddDigitalArtListingContent() {
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
   const requestedProfileSlug = searchParams.get('slug') || '';
+  const accountSlug = searchParams.get('accountSlug') || '';
+  const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -1158,6 +1162,7 @@ function AddDigitalArtListingContent() {
 
         await updateProfileOffering({
           slug: activeProfileSlug,
+          accountSlug: accountSlug || undefined,
           offeringId: editOfferingId,
           title: form.title.trim(),
           blurb: form.description.trim(),
@@ -1268,7 +1273,7 @@ function AddDigitalArtListingContent() {
                 <p className="mt-2 text-sm leading-7 text-gray-300">One step at a time.</p>
               </div>
               <Link
-                href={returnTo}
+                href={returnToHref}
                 className="rounded-full border border-[#d4af37]/30 px-4 py-2 text-sm text-[#d4af37]"
               >
                 Back to simple home
@@ -1279,6 +1284,8 @@ function AddDigitalArtListingContent() {
           <div className="max-w-3xl">
             <StepBar current={step} />
             <div className="bg-[#141414] border border-white/5 rounded-2xl p-6">
+              <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+              {accountSlug ? <div className="mt-4" /> : null}
               {step === 1 && <Step1 form={form} update={update} simpleMode={simpleMode} />}
               {step === 2 && <Step2 form={form} update={update} simpleMode={simpleMode} />}
               {step === 3 && <Step3 form={form} update={update} simpleMode={simpleMode} />}
@@ -1352,7 +1359,7 @@ function AddDigitalArtListingContent() {
         {/* Top bar */}
         <div className="sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-sm border-b border-white/5 px-6 py-4 flex items-center gap-4">
           <Link
-            href={returnTo}
+            href={returnToHref}
             className="flex items-center gap-1.5 text-gray-400 hover:text-[#d4af37] transition-colors text-sm"
           >
             <ArrowLeft size={16} /> Back
@@ -1375,6 +1382,8 @@ function AddDigitalArtListingContent() {
             <StepBar current={step} />
 
             <div className="bg-[#141414] border border-white/5 rounded-2xl p-6">
+              <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+              {accountSlug ? <div className="mt-4" /> : null}
               {step === 1 && <Step1 form={form} update={update} simpleMode={simpleMode} />}
               {step === 2 && <Step2 form={form} update={update} simpleMode={simpleMode} />}
               {step === 3 && <Step3 form={form} update={update} simpleMode={simpleMode} />}

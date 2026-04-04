@@ -21,7 +21,9 @@ import {
 import { requireWalletAction } from '@/app/lib/requireWalletAction';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
+import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
+import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
 import { fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
 
@@ -593,6 +595,8 @@ function CourseCreationPageContent() {
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
   const requestedProfileSlug = searchParams.get('slug') || '';
+  const accountSlug = searchParams.get('accountSlug') || '';
+  const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'basics' | 'curriculum' | 'media' | 'pricing' | 'settings'>(simpleMode ? 'basics' : 'dashboard');
@@ -869,6 +873,7 @@ const buildCoursePayload = (creatorAddress: string) => {
     if (!profileSlug) setProfileSlug(activeProfileSlug);
     await updateProfileOffering({
       slug: activeProfileSlug,
+      accountSlug: accountSlug || undefined,
       offeringId: editOfferingId,
       title: courseTitle.trim(),
       blurb: courseDescription.trim(),
@@ -1019,7 +1024,7 @@ const buildCoursePayload = (creatorAddress: string) => {
       <header className={`${simpleMode ? 'mx-auto mt-8 w-full max-w-5xl rounded-[28px] border border-[#d4af37]/20 bg-[#101010] px-6 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.35)]' : 'bg-[#141414] border-b border-[#d4af37]/20 px-6 py-4'} flex-shrink-0`}>
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href={returnTo} className="flex items-center gap-2 text-gray-400 hover:text-[#d4af37] transition-colors">
+              <Link href={returnToHref} className="flex items-center gap-2 text-gray-400 hover:text-[#d4af37] transition-colors">
                 <ChevronLeft size={20} />
                 <span className="text-sm">{simpleMode ? 'Back to simple home' : 'Back to Creator Hub'}</span>
               </Link>
@@ -1071,6 +1076,9 @@ const buildCoursePayload = (creatorAddress: string) => {
         </header>
 
         <div className={`flex flex-1 ${simpleMode ? 'mx-auto mt-6 w-full max-w-5xl flex-col overflow-visible px-4 pb-12 sm:px-0' : 'overflow-hidden'}`}>
+          <div className={`${simpleMode ? 'mb-6' : 'm-6 mb-0'}`}>
+            <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+          </div>
           {/* Left Nav */}
           <div className={`${simpleMode ? 'w-full rounded-2xl border border-[#d4af37]/20 bg-[#101010] p-3' : 'w-56 bg-[#141414] border-r border-[#d4af37]/20 flex flex-col flex-shrink-0'}`}>
             <nav className={`${simpleMode ? 'flex gap-2 overflow-x-auto' : 'p-3 space-y-1 flex-1'}`}>
