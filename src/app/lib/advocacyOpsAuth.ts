@@ -15,12 +15,18 @@ export type AdvocacyOpsIdentity = {
 
 function parseBearerToken(req: NextRequest) {
   const auth = req.headers.get('authorization') || '';
-  if (!auth.startsWith('Bearer ')) return '';
-  return auth.slice('Bearer '.length).trim();
+  if (auth.startsWith('Bearer ')) return auth.slice('Bearer '.length).trim();
+  return (req.cookies.get('indigena_platform_admin_auth')?.value || '').trim();
 }
 
 function parseWallet(req: NextRequest) {
-  return (req.headers.get('x-wallet-address') || req.headers.get('x-actor-id') || '').trim();
+  return (
+    req.headers.get('x-wallet-address') ||
+    req.headers.get('x-actor-id') ||
+    req.cookies.get('indigena_platform_admin_wallet')?.value ||
+    req.cookies.get('indigena_platform_admin_actor')?.value ||
+    ''
+  ).trim();
 }
 
 function parseAllowedWallets(value: string | undefined) {
@@ -137,7 +143,7 @@ async function resolveWalletRole(walletAddress: string): Promise<AdvocacyOpsIden
 export async function requireAdvocacyOpsRole(req: NextRequest, allowedRoles: string[]) {
   const token = parseBearerToken(req);
   const wallet = parseWallet(req);
-  const adminSigned = req.headers.get('x-admin-signed') === 'true';
+  const adminSigned = req.headers.get('x-admin-signed') === 'true' || req.cookies.get('indigena_platform_admin_session')?.value === 'true';
   const normalizedAllowedRoles = allowedRoles.map((role) => role.toLowerCase());
 
   let identity: AdvocacyOpsIdentity | null = null;

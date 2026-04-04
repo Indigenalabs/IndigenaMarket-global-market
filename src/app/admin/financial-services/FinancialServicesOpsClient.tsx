@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { fetchFinancialServicesDashboard, updateFinancialServiceRecord } from '@/app/lib/financialServicesApi';
+import { buildFinancialAuditHistory, buildFinancialReconciliationReport } from '@/app/lib/financialServicesPresentation';
 import type { FinancialOrderReconciliation, FinancialServicesDashboard } from '@/app/lib/financialServices';
 
 type FinancialEntity = 'payout' | 'indi-withdrawal' | 'royalty' | 'marketplace-order' | 'settlement-case' | 'bnpl' | 'tax-report';
@@ -97,6 +98,8 @@ export default function FinancialServicesOpsClient() {
       }),
     [data.orderReconciliation, normalizedSearch, pillarFilter, statusFilter]
   );
+  const reconciliationReport = useMemo(() => buildFinancialReconciliationReport(filteredSettlements), [filteredSettlements]);
+  const auditHistory = useMemo(() => buildFinancialAuditHistory(data), [data]);
 
   async function update(entity: FinancialEntity, id: string, status: string) {
     const json = await updateFinancialServiceRecord({ entity, id, status });
@@ -215,6 +218,67 @@ export default function FinancialServicesOpsClient() {
               ))}
             </select>
           </label>
+        </div>
+      </div>
+
+      <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Reconciliation reports</h2>
+            <p className="mt-1 text-sm text-gray-400">Export the current finance picture or review the last 200 audit snapshots generated from payouts, withdrawals, royalties, and settlement cases.</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="/api/admin/financial-services/report?format=json"
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white transition hover:border-[#d4af37]/40 hover:text-[#f3deb1]"
+            >
+              Open JSON
+            </a>
+            <a
+              href="/api/admin/financial-services/report?format=csv"
+              className="rounded-xl border border-[#d4af37]/30 px-4 py-2 text-sm text-[#f3deb1] transition hover:bg-[#d4af37]/10"
+            >
+              Export CSV
+            </a>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {reconciliationReport.map((row) => (
+            <div key={row.pillar} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{row.pillar}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{row.caseCount} cases</p>
+              <p className="mt-2 text-sm text-gray-300">Gross {row.grossAmount.toFixed(2)}</p>
+              <p className="mt-1 text-xs text-gray-500">Pending {row.pendingCount} • Settled {row.settledCount} • Disputed {row.disputedCount}</p>
+            </div>
+          ))}
+          {reconciliationReport.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 p-4 text-sm text-gray-400">
+              No reconciliation report rows match the current filters.
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-gray-300">Audit history</h3>
+            <p className="text-xs text-gray-500">{auditHistory.length} entries</p>
+          </div>
+          <div className="mt-3 space-y-2">
+            {auditHistory.slice(0, 12).map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{entry.title}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.entity} • {entry.pillar} • {entry.sourceReference}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-white">{entry.amount.toFixed(2)} {entry.currency}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.status}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-400">{entry.note} • {entry.actorId} • {entry.occurredAt}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
