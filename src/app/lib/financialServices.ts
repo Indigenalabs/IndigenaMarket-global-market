@@ -55,6 +55,7 @@ export interface FinancialOrderReconciliation {
   title: string;
   pillar: string;
   sourceType: string;
+  sourceLabel: string;
   sourceReference: string;
   orderKind: 'primary' | 'resale';
   orderStatus: DigitalArtOrderStatus;
@@ -70,6 +71,14 @@ export interface FinancialOrderReconciliation {
   withdrawalStatuses: IndiWithdrawalStatus[];
   linkedLedgerEntryIds: string[];
   createdAt: string;
+}
+
+function toSourceLabel(sourceType: string) {
+  if (sourceType === 'orderId') return 'Order';
+  if (sourceType === 'receiptId') return 'Receipt';
+  if (sourceType === 'bookingId') return 'Booking';
+  if (sourceType === 'referenceId') return 'Reference';
+  return 'Settlement';
 }
 
 const RUNTIME_DIR = path.join(process.cwd(), '.runtime');
@@ -112,6 +121,7 @@ function buildOrderReconciliation(input: {
       title: order.title,
       pillar: 'digital-arts',
       sourceType: 'orderId',
+      sourceLabel: toSourceLabel('orderId'),
       sourceReference: order.id,
       orderKind: order.orderKind,
       orderStatus: order.status,
@@ -175,6 +185,7 @@ function buildOrderReconciliation(input: {
       title: primaryEntry.item || `${primaryEntry.pillar} settlement`,
       pillar: primaryEntry.pillar,
       sourceType: group.sourceType,
+      sourceLabel: toSourceLabel(group.sourceType),
       sourceReference: group.key,
       orderKind: 'primary',
       orderStatus,

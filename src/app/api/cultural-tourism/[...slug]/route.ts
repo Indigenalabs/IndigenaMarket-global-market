@@ -781,7 +781,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
           sourceId: String(booking.experience_id || b),
           metadata: {
             currency: String(booking.currency || 'USD'),
-            bookingId: b
+            bookingId: b,
+            experienceId: String(booking.experience_id || b),
+            receiptId: `rcpt-${b}`
           },
           createdAt: new Date().toISOString()
         });

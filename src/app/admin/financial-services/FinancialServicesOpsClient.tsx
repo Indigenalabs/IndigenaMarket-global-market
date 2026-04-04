@@ -17,6 +17,10 @@ export default function FinancialServicesOpsClient() {
     orderReconciliation: []
   });
   const [feedback, setFeedback] = useState('');
+  const [search, setSearch] = useState('');
+  const [queueFilter, setQueueFilter] = useState<'all' | 'payouts' | 'withdrawals' | 'royalties' | 'settlements'>('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [pillarFilter, setPillarFilter] = useState('all');
 
   useEffect(() => {
     fetchFinancialServicesDashboard()
@@ -34,6 +38,64 @@ export default function FinancialServicesOpsClient() {
       taxReportPurchases: data.taxReports.length
     }),
     [data]
+  );
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const availablePillars = useMemo(
+    () =>
+      Array.from(new Set([...data.royalties.map((entry) => entry.pillar), ...data.orderReconciliation.map((entry) => entry.pillar)])).sort(),
+    [data]
+  );
+
+  function matchesSearch(values: Array<string | number | undefined>) {
+    if (!normalizedSearch) return true;
+    return values.some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+  }
+
+  const filteredPayouts = useMemo(
+    () =>
+      data.payouts.filter((entry) => {
+        if (statusFilter !== 'all' && entry.status !== statusFilter) return false;
+        return matchesSearch([entry.walletAddress, entry.actorId, entry.amount, entry.netAmount]);
+      }),
+    [data.payouts, normalizedSearch, statusFilter]
+  );
+
+  const filteredWithdrawals = useMemo(
+    () =>
+      data.indiWithdrawals.filter((entry) => {
+        if (statusFilter !== 'all' && entry.status !== statusFilter) return false;
+        return matchesSearch([entry.destinationLabel, entry.destinationType, entry.actorId, entry.referenceId, entry.amount]);
+      }),
+    [data.indiWithdrawals, normalizedSearch, statusFilter]
+  );
+
+  const filteredRoyalties = useMemo(
+    () =>
+      data.royalties.filter((entry) => {
+        if (statusFilter !== 'all' && entry.status !== statusFilter) return false;
+        if (pillarFilter !== 'all' && entry.pillar !== pillarFilter) return false;
+        return matchesSearch([
+          entry.item,
+          entry.actorId,
+          entry.sourceId,
+          entry.sourceType,
+          String(entry.metadata?.orderId || ''),
+          String(entry.metadata?.receiptId || ''),
+          String(entry.metadata?.bookingId || '')
+        ]);
+      }),
+    [data.royalties, normalizedSearch, pillarFilter, statusFilter]
+  );
+
+  const filteredSettlements = useMemo(
+    () =>
+      data.orderReconciliation.filter((entry) => {
+        if (statusFilter !== 'all' && entry.orderStatus !== statusFilter) return false;
+        if (pillarFilter !== 'all' && entry.pillar !== pillarFilter) return false;
+        return matchesSearch([entry.title, entry.sourceReference, entry.sourceType, entry.sourceLabel, entry.sellerActorId, entry.creatorActorId, entry.pillar]);
+      }),
+    [data.orderReconciliation, normalizedSearch, pillarFilter, statusFilter]
   );
 
   async function update(entity: FinancialEntity, id: string, status: string) {
@@ -102,11 +164,65 @@ export default function FinancialServicesOpsClient() {
         <div className="rounded-[24px] border border-white/10 bg-[#111111] p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Tax report purchases</p><p className="mt-2 text-2xl font-semibold text-white">{summary.taxReportPurchases}</p></div>
       </div>
 
+      <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex min-w-[220px] flex-1 flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Search queues</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by title, actor, receipt, booking, or order"
+              className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none placeholder:text-gray-600"
+            />
+          </label>
+          <label className="flex min-w-[170px] flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Queue</span>
+            <select value={queueFilter} onChange={(event) => setQueueFilter(event.target.value as typeof queueFilter)} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none">
+              <option value="all">All queues</option>
+              <option value="payouts">Instant payouts</option>
+              <option value="withdrawals">INDI withdrawals</option>
+              <option value="royalties">Royalty ledger</option>
+              <option value="settlements">Settlement cases</option>
+            </select>
+          </label>
+          <label className="flex min-w-[170px] flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Status</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none">
+              <option value="all">All statuses</option>
+              <option value="requested">Requested</option>
+              <option value="queued">Queued</option>
+              <option value="processing">Processing</option>
+              <option value="reviewing">Reviewing</option>
+              <option value="paid">Paid</option>
+              <option value="pending_payout">Pending payout</option>
+              <option value="pending_settlement">Pending settlement</option>
+              <option value="settled">Settled</option>
+              <option value="captured">Captured</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="refunded">Refunded</option>
+              <option value="disputed">Disputed</option>
+            </select>
+          </label>
+          <label className="flex min-w-[170px] flex-col gap-2 text-sm text-gray-300">
+            <span className="text-xs uppercase tracking-[0.16em] text-gray-500">Pillar</span>
+            <select value={pillarFilter} onChange={(event) => setPillarFilter(event.target.value)} className="rounded-xl border border-white/10 bg-[#0b0b0b] px-3 py-2 text-sm text-white outline-none">
+              <option value="all">All pillars</option>
+              {availablePillars.map((pillar) => (
+                <option key={pillar} value={pillar}>
+                  {pillar}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-5">
-        <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        {(queueFilter === 'all' || queueFilter === 'payouts') ? <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
           <h2 className="text-lg font-semibold text-white">Instant payouts</h2>
           <div className="mt-4 space-y-3">
-            {data.payouts.map((entry) => (
+            {filteredPayouts.map((entry) => (
               <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-sm font-semibold text-white">{entry.walletAddress}</p>
                 <p className="mt-1 text-xs text-gray-500">${entry.amount.toFixed(2)} gross - fee ${entry.feeAmount.toFixed(2)} - net ${entry.netAmount.toFixed(2)}</p>
@@ -116,12 +232,12 @@ export default function FinancialServicesOpsClient() {
               </div>
             ))}
           </div>
-        </div>
+        </div> : null}
 
-        <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        {(queueFilter === 'all' || queueFilter === 'withdrawals') ? <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
           <h2 className="text-lg font-semibold text-white">INDI withdrawals</h2>
           <div className="mt-4 space-y-3">
-            {data.indiWithdrawals.map((entry) => (
+            {filteredWithdrawals.map((entry) => (
               <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-sm font-semibold text-white">{entry.destinationLabel || entry.destinationType}</p>
                 <p className="mt-1 text-xs text-gray-500">{entry.actorId} - {entry.amount.toFixed(2)} INDI - net {entry.netAmount.toFixed(2)} - {entry.destinationType}</p>
@@ -131,12 +247,12 @@ export default function FinancialServicesOpsClient() {
               </div>
             ))}
           </div>
-        </div>
+        </div> : null}
 
-        <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
+        {(queueFilter === 'all' || queueFilter === 'royalties') ? <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
           <h2 className="text-lg font-semibold text-white">Royalty ledger</h2>
           <div className="mt-4 space-y-3">
-            {data.royalties.map((entry) => (
+            {filteredRoyalties.map((entry) => (
               <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-sm font-semibold text-white">{entry.item}</p>
                 <p className="mt-1 text-xs text-gray-500">{entry.pillar} - gross {entry.grossAmount.toFixed(2)} - net {entry.creatorNetAmount.toFixed(2)}</p>
@@ -146,7 +262,7 @@ export default function FinancialServicesOpsClient() {
               </div>
             ))}
           </div>
-        </div>
+        </div> : null}
 
         <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5">
           <h2 className="text-lg font-semibold text-white">BNPL partner lane</h2>
@@ -185,15 +301,15 @@ export default function FinancialServicesOpsClient() {
             <h2 className="text-lg font-semibold text-white">Marketplace settlement reconciliation</h2>
             <p className="mt-1 text-sm text-gray-400">Track orders, receipts, bookings, royalties, and payout readiness across the selling pillars.</p>
           </div>
-          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{data.orderReconciliation.length} tracked cases</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{filteredSettlements.length} matching cases</p>
         </div>
         <div className="mt-4 grid gap-3">
-          {data.orderReconciliation.map((entry) => (
+          {(queueFilter === 'all' || queueFilter === 'settlements') ? filteredSettlements.map((entry) => (
             <div key={`${entry.settlementEntity}-${entry.settlementId}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">{entry.title}</p>
-                  <p className="mt-1 text-xs text-gray-500">{entry.sourceReference} - {entry.sourceType} - {entry.amountPaid.toFixed(2)} {entry.currency}</p>
+                  <p className="mt-1 text-xs text-gray-500">{entry.sourceLabel} {entry.sourceReference} - {entry.amountPaid.toFixed(2)} {entry.currency}</p>
                   <p className="mt-1 text-xs text-gray-500">seller {entry.sellerActorId || 'n/a'} - creator {entry.creatorActorId || 'n/a'}</p>
                 </div>
                 <select value={entry.orderStatus} onChange={(e) => void update(entry.settlementEntity, entry.settlementId, e.target.value)} className="rounded-xl border border-white/10 bg-[#111111] px-3 py-2 text-sm text-white outline-none">
@@ -204,7 +320,7 @@ export default function FinancialServicesOpsClient() {
                 <div className="rounded-xl border border-white/10 bg-[#0b0b0b] p-3">
                   <p className="uppercase tracking-[0.16em] text-gray-500">Pillar</p>
                   <p className="mt-2 text-sm text-white">{entry.pillar}</p>
-                  <p className="mt-1 text-[11px] text-gray-500">{entry.settlementEntity === 'marketplace-order' ? entry.orderKind : entry.sourceType}</p>
+                  <p className="mt-1 text-[11px] text-gray-500">{entry.settlementEntity === 'marketplace-order' ? entry.orderKind : entry.sourceLabel}</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-[#0b0b0b] p-3">
                   <p className="uppercase tracking-[0.16em] text-gray-500">Royalty</p>
@@ -226,7 +342,12 @@ export default function FinancialServicesOpsClient() {
                 </div>
               </div>
             </div>
-          ))}
+          )) : []}
+          {(queueFilter === 'all' || queueFilter === 'settlements') && filteredSettlements.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 p-6 text-sm text-gray-400">
+              No settlement cases match the current filters.
+            </div>
+          ) : null}
         </div>
       </div>
 

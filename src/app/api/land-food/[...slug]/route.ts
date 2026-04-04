@@ -169,7 +169,9 @@ async function createOrder(req: NextRequest) {
     sourceId: listingId,
     metadata: {
       currency: String(order.currency || body.currency || 'INDI'),
-      orderId: String(order.id)
+      orderId: String(order.id),
+      receiptId: String(order.receipt_id || ''),
+      listingId
     },
     createdAt: String(order.created_at)
   });

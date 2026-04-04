@@ -195,7 +195,12 @@ async function confirmCheckoutOrder(orderId: string, req: NextRequest) {
     const { error } = await supabase.from('physical_item_orders').update(updates).eq('id', orderId);
     if (error) return fail(error.message, 500);
   }
-  const items = Array.isArray(existingOrder?.items) ? (existingOrder?.items as R[]) : [];
+  const bodyEntries = Array.isArray(body.entries)
+    ? (body.entries as R[])
+    : Array.isArray(body.items)
+      ? (body.items as R[])
+      : [];
+  const items = Array.isArray(existingOrder?.items) ? (existingOrder?.items as R[]) : bodyEntries;
   const itemIds = items.map((entry) => String(entry.itemId || '')).filter(Boolean);
   const makerByItemId = new Map<string, string>();
   if (isSupabaseServerConfigured() && itemIds.length > 0) {
@@ -212,13 +217,13 @@ async function confirmCheckoutOrder(orderId: string, req: NextRequest) {
 
   const sellerGroups = new Map<string, { itemSummary: string[]; itemIds: string[]; subtotal: number }>();
   for (const entry of items) {
-    const itemId = String(entry.itemId || '');
+    const itemId = String(entry.itemId || entry.id || '');
     const actorId = makerByItemId.get(itemId) || String(entry.makerActorId || entry.maker || itemId || '').trim();
     if (!actorId) continue;
     const group = sellerGroups.get(actorId) || { itemSummary: [], itemIds: [], subtotal: 0 };
-    group.itemSummary.push(String(entry.title || itemId || 'Physical item'));
+    group.itemSummary.push(String(entry.title || entry.name || itemId || 'Physical item'));
     if (itemId) group.itemIds.push(itemId);
-    group.subtotal += Number(entry.price || 0) * Math.max(1, Number(entry.quantity || 1));
+    group.subtotal += Number(entry.price || entry.unitPrice || 0) * Math.max(1, Number(entry.quantity || 1));
     sellerGroups.set(actorId, group);
   }
 
@@ -257,7 +262,9 @@ async function confirmCheckoutOrder(orderId: string, req: NextRequest) {
         currency: String(body.currency || 'INDI'),
         sellerActorId,
         orderId,
-        itemIds: group.itemIds
+        itemIds: group.itemIds,
+        receiptId: String(updates.receipt_id || ''),
+        listingId: group.itemIds[0] || orderId
       },
       createdAt: new Date().toISOString()
     });

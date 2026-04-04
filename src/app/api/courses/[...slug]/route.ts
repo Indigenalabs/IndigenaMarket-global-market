@@ -324,7 +324,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         sourceId: a,
         metadata: {
           currency: pricing.currency,
-          receiptId
+          receiptId,
+          courseId: a
         },
         createdAt: new Date().toISOString()
       });

@@ -185,7 +185,9 @@ async function createEscrowOrder(serviceId: string, req: NextRequest, body: R) {
       sourceId: String(order.service_id || body.serviceId || order.id),
       metadata: {
         currency: String(order.currency || body.currency || 'INDI'),
-        orderId: String(order.id)
+        orderId: String(order.id),
+        serviceId: String(order.service_id || body.serviceId || ''),
+        freelancerActorId: String(order.freelancer_actor_id || '')
       },
       createdAt: String(order.created_at)
     });

@@ -735,7 +735,9 @@ async function confirmOrderPayment(req: NextRequest) {
     metadata: {
       currency: String(body.currency || 'INDI'),
       paymentStatus,
-      orderId
+      orderId,
+      receiptId,
+      listingId: productIdForLedger || orderId
     },
     createdAt: new Date().toISOString()
   });
