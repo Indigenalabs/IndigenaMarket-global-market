@@ -8,6 +8,7 @@ export default async function CommunityStorePage({ params }: { params: Promise<{
   const { slug } = await params;
   const data = await getPlatformAccountBySlug(slug);
   if (!data) notFound();
+  const presentation = await getCommunityEntityPresentation(data.account, data.members, data.splitRules);
 
   return (
     <ProfileWorkspaceShell>
@@ -15,7 +16,7 @@ export default async function CommunityStorePage({ params }: { params: Promise<{
           account={data.account}
           members={data.members}
           splitRules={data.splitRules}
-          presentation={getCommunityEntityPresentation(data.account, data.members, data.splitRules)}
+          presentation={presentation}
           initialTab="shop"
         />
     </ProfileWorkspaceShell>

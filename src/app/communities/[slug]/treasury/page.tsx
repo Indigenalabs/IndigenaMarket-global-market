@@ -8,7 +8,13 @@ export default async function CommunityTreasuryPage({ params }: { params: Promis
   const { slug } = await params;
   const [entity, treasuryData] = await Promise.all([getPlatformAccountBySlug(slug), getTreasuryByCommunitySlug(slug)]);
   if (!entity || !treasuryData) notFound();
-  const presentation = getCommunityEntityPresentation(entity.account, entity.members, entity.splitRules);
+  const presentation = await getCommunityEntityPresentation(entity.account, entity.members, entity.splitRules);
+  const storefrontGroups = presentation.storefrontItems.reduce<Record<string, typeof presentation.storefrontItems>>((acc, item) => {
+    const key = item.splitRuleId || item.splitLabel || 'Unrouted community offers';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
 
   return (
     <main className="min-h-screen bg-[#090909] px-4 py-6 text-white md:px-8 md:py-8">
@@ -74,6 +80,49 @@ export default async function CommunityTreasuryPage({ params }: { params: Promis
           </div>
 
           <div className="space-y-6">
+            <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
+              <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Routing preview</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">Live storefront offers grouped by split rule</h2>
+              <p className="mt-3 text-sm leading-7 text-white/66">
+                This shows how published community offers are currently routed before any new sales land. It gives ops a treasury-first view of storefront intent, not just past ledger events.
+              </p>
+              <div className="mt-5 space-y-4">
+                {Object.entries(storefrontGroups).map(([group, items]) => (
+                  <div key={group} className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{group}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">{items.length} live storefront offers</p>
+                      </div>
+                      <span className="rounded-full border border-[#d4af37]/20 bg-[#d4af37]/10 px-3 py-1 text-xs text-[#f3ddb1]">
+                        Routing preview
+                      </span>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {items.map((item) => (
+                        <div key={item.id} className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-white">{item.title}</p>
+                              <p className="mt-1 text-xs text-white/60">{item.pillarLabel} | {item.priceLabel}</p>
+                            </div>
+                            <Link href={item.href} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white hover:border-[#d4af37]/35">
+                              Open offer detail
+                            </Link>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/65">
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{item.status || 'Active'}</span>
+                            {item.availabilityLabel ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{item.availabilityLabel}</span> : null}
+                            {item.ownerProfileSlug ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">Owner: {item.ownerProfileSlug}</span> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
               <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Featured support goals</p>
               <div className="mt-4 space-y-4">

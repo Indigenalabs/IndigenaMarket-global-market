@@ -1,4 +1,7 @@
+import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import type { PlatformAccountMemberRecord, PlatformAccountRecord, RevenueSplitRuleRecord } from '@/app/lib/platformAccounts';
+import { applyLaunchWindowState, getOfferingCtaLabel, getOfferingImage, shouldShowOfferingInStorefront } from '@/app/profile/lib/offeringMerchandising';
+import { creatorProfiles, type ProfileOffering } from '@/app/profile/data/profileShowcase';
 
 export interface CommunityStorefrontItem {
   id: string;
@@ -9,8 +12,13 @@ export interface CommunityStorefrontItem {
   image: string;
   pillarLabel: string;
   splitLabel: string;
+  splitRuleId?: string;
   ctaLabel: string;
   href: string;
+  sourceHref?: string;
+  ownerProfileSlug?: string;
+  status?: string;
+  availabilityLabel?: string;
 }
 
 export interface CommunitySupportGoal {
@@ -266,11 +274,110 @@ const SUPPORT_GOALS: Record<string, CommunitySupportGoal[]> = {
   ]
 };
 
-export function getCommunityEntityPresentation(
+function metadataValue(metadata: string[] | undefined, prefix: string) {
+  const match = (metadata || []).find((entry) => entry.startsWith(prefix));
+  return match ? match.replace(prefix, '').trim() : '';
+}
+
+function liveOfferingToStorefrontItem(account: PlatformAccountRecord, offering: ProfileOffering, ownerProfileSlug?: string): CommunityStorefrontItem {
+  const normalized = applyLaunchWindowState(offering);
+  return {
+    id: offering.id,
+    title: offering.title,
+    subtitle: offering.type || normalized.status || 'Community offering',
+    description: offering.blurb,
+    priceLabel: offering.priceLabel,
+    image: getOfferingImage(normalized),
+    pillarLabel: offering.pillarLabel,
+    splitLabel: metadataValue(offering.metadata, 'Split rule:') || metadataValue(offering.metadata, 'Treasury route:') || 'Community treasury routing',
+    splitRuleId: metadataValue(offering.metadata, 'Split rule id:') || undefined,
+    ctaLabel: getOfferingCtaLabel(normalized),
+    href: `/communities/${account.slug}/store/${offering.id}`,
+    sourceHref: offering.href,
+    ownerProfileSlug,
+    status: normalized.status,
+    availabilityLabel: normalized.availabilityLabel
+  };
+}
+
+function decorateStaticItems(account: PlatformAccountRecord, items: CommunityStorefrontItem[]) {
+  return items.map((item) => ({
+    ...item,
+    href: `/communities/${account.slug}/store/${item.id}`,
+    sourceHref: item.href,
+    splitRuleId: undefined,
+    status: 'Active',
+    availabilityLabel: 'Community storefront'
+  }));
+}
+
+async function listLiveCommunityStorefrontItems(
+  account: PlatformAccountRecord
+): Promise<CommunityStorefrontItem[]> {
+  const storefrontLabel = `Storefront: ${account.displayName}`;
+
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const { data } = await supabase
+      .from('creator_profile_offerings')
+      .select('*')
+      .contains('metadata', [storefrontLabel])
+      .order('updated_at', { ascending: false });
+
+    const mapped = ((data || []) as Array<Record<string, unknown>>)
+      .map((row) => {
+        const offering: ProfileOffering = {
+          id: String(row.id || ''),
+          title: String(row.title || 'Untitled offering'),
+          pillar: String(row.pillar || 'digital-arts') as ProfileOffering['pillar'],
+          pillarLabel: String(row.pillar_label || 'Community offer'),
+          icon: String(row.icon || ''),
+          type: String(row.offering_type || 'Community offering'),
+          priceLabel: String(row.price_label || 'Contact'),
+          image: String(row.image_url || ''),
+          href: String(row.href || ''),
+          blurb: String(row.blurb || ''),
+          status: String(row.status || 'Draft'),
+          coverImage: String(row.cover_image_url || ''),
+          ctaMode: String(row.cta_mode || 'view') as ProfileOffering['ctaMode'],
+          ctaPreset: String(row.cta_preset || '') as ProfileOffering['ctaPreset'],
+          merchandisingRank: Number(row.merchandising_rank || 0),
+          galleryOrder: Array.isArray(row.gallery_order) ? (row.gallery_order as string[]) : [],
+          launchWindowStartsAt: String(row.launch_window_starts_at || ''),
+          launchWindowEndsAt: String(row.launch_window_ends_at || ''),
+          availabilityLabel: String(row.availability_label || ''),
+          availabilityTone: String(row.availability_tone || 'default') as ProfileOffering['availabilityTone'],
+          featured: Boolean(row.featured),
+          metadata: Array.isArray(row.metadata) ? (row.metadata as string[]) : []
+        };
+        return offering;
+      })
+      .filter((offering) => shouldShowOfferingInStorefront(offering));
+
+    if (mapped.length > 0) {
+      return mapped.map((offering) =>
+        liveOfferingToStorefrontItem(
+          account,
+          offering,
+          creatorProfiles.find((profile) => profile.offerings.some((entry) => entry.id === offering.id))?.slug
+        )
+      );
+    }
+  }
+
+  return creatorProfiles
+    .flatMap((profile) =>
+      profile.offerings
+        .filter((offering) => (offering.metadata || []).includes(storefrontLabel) && shouldShowOfferingInStorefront(offering))
+        .map((offering) => liveOfferingToStorefrontItem(account, offering, profile.slug))
+    );
+}
+
+export async function getCommunityEntityPresentation(
   account: PlatformAccountRecord,
   members: PlatformAccountMemberRecord[],
   splitRules: RevenueSplitRuleRecord[]
-): CommunityEntityPresentation {
+): Promise<CommunityEntityPresentation> {
   const media = MEDIA_OVERRIDES[account.slug] || { banner: account.banner, avatar: account.avatar };
   const representativeProfiles: CommunityRepresentativeProfile[] = members.map((member) => {
     const copy = REPRESENTATIVE_COPY[member.actorId];
@@ -284,12 +391,16 @@ export function getCommunityEntityPresentation(
     };
   });
 
-  const splitAwareItems = (STOREFRONT_ITEMS[account.slug] || []).map((item) => {
+  const runtimeFallbackItems = decorateStaticItems(account, STOREFRONT_ITEMS[account.slug] || []);
+  const liveItems = await listLiveCommunityStorefrontItems(account);
+  const baseItems = liveItems.length > 0 ? liveItems : runtimeFallbackItems;
+  const splitAwareItems = baseItems.map((item) => {
     const matchingRule = splitRules.find((rule) => rule.offeringLabel.toLowerCase().includes(item.title.split(' ')[0].toLowerCase()));
     return matchingRule
       ? {
           ...item,
-          splitLabel: matchingRule.beneficiaries.map((entry) => `${entry.label} ${entry.percentage}%`).join(' | ')
+          splitLabel: matchingRule.beneficiaries.map((entry) => `${entry.label} ${entry.percentage}%`).join(' | '),
+          splitRuleId: matchingRule.id
         }
       : item;
   });
