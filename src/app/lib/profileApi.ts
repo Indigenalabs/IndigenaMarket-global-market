@@ -18,6 +18,34 @@ export interface CreatorDashboardResponse {
   messageThreads: CreatorMessageThread[];
 }
 
+export interface CreateProfileOfferingPayload {
+  slug: string;
+  accountSlug?: string;
+  splitRuleId?: string;
+  offeringId?: string;
+  pillar: CreatorProfileRecord['offerings'][number]['pillar'];
+  pillarLabel: string;
+  icon: string;
+  offeringType: string;
+  title: string;
+  blurb: string;
+  priceLabel: string;
+  image: string;
+  coverImage?: string;
+  href: string;
+  status: string;
+  ctaMode: 'view' | 'buy' | 'book' | 'enroll' | 'quote' | 'message';
+  ctaPreset?: 'collect-now' | 'book-now' | 'enroll-now' | 'request-quote' | 'message-first';
+  merchandisingRank: number;
+  galleryOrder?: string[];
+  launchWindowStartsAt?: string;
+  launchWindowEndsAt?: string;
+  availabilityLabel: string;
+  availabilityTone: 'default' | 'success' | 'warning' | 'danger';
+  featured: boolean;
+  metadata?: string[];
+}
+
 export interface SubscriptionEntitlementsResponse {
   memberPlanId: string;
   creatorPlanId: string;
@@ -290,6 +318,7 @@ export async function updateProfileOfferingsBulk(payload: {
 export async function updateProfileOffering(payload: {
   slug: string;
   accountSlug?: string;
+  splitRuleId?: string;
   offeringId: string;
   title: string;
   blurb: string;
@@ -314,6 +343,17 @@ export async function updateProfileOffering(payload: {
   if (!res.ok) throw new Error(await parseApiError(res, 'Listing update failed'));
   const json = await res.json();
   return (json?.data ?? json) as { ok: true; profile: CreatorProfileRecord };
+}
+
+export async function createProfileOffering(payload: CreateProfileOfferingPayload) {
+  const res = await fetchWithTimeout('/api/profile/offerings/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(await parseApiError(res, 'Listing creation failed'));
+  const json = await res.json();
+  return (json?.data ?? json) as { ok: true; offeringId: string; offering: CreatorProfileRecord['offerings'][number]; profile: CreatorProfileRecord };
 }
 
 export async function saveProfileBundle(payload: {

@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireCreatorProfileOwner, requirePlatformAccountAccess, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
-import { buildCommunityPublishingMetadata } from '@/app/lib/communityPublishing';
+import { buildCommunityPublishingMetadata, resolveCommunitySplitRule } from '@/app/lib/communityPublishing';
 import type { PlatformAccountRecord } from '@/app/lib/platformAccounts';
 import { updateCreatorProfileOfferingDetails, type ProfileOffering } from '@/app/profile/data/profileShowcase';
 
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
   const featured = Boolean(body.featured);
   const requiresVerifiedSeller = ['Active', 'Bookable', 'Enrolling', 'Waitlist'].includes(status) || featured;
   let publishingAccount: { account: PlatformAccountRecord } | null = null;
+  let selectedSplitRule = null;
   if (accountSlug) {
     const accountAccess = await requirePlatformAccountAccess(req, accountSlug, {
       guestMessage: 'Sign in to publish for a community storefront.',
@@ -38,6 +39,10 @@ export async function POST(req: NextRequest) {
     });
     if ('error' in accountAccess) return accountAccess.error;
     publishingAccount = accountAccess;
+    selectedSplitRule = resolveCommunitySplitRule(accountAccess.splitRules, asText(body.splitRuleId) || undefined);
+    if (asText(body.splitRuleId) && !selectedSplitRule) {
+      return NextResponse.json({ message: 'Select an active community split rule for this storefront.' }, { status: 400 });
+    }
     if (requiresVerifiedSeller && accountAccess.account.verificationStatus !== 'approved') {
       return NextResponse.json({ message: 'This community storefront must be approved before you can publish listings under it.' }, { status: 403 });
     }
@@ -50,7 +55,7 @@ export async function POST(req: NextRequest) {
   }
 
   const fallbackMetadata = owner.fallbackProfile.offerings.find((entry) => entry.id === offeringId)?.metadata || [];
-  let nextMetadata = buildCommunityPublishingMetadata(fallbackMetadata, publishingAccount?.account || null);
+  let nextMetadata = buildCommunityPublishingMetadata(fallbackMetadata, publishingAccount?.account || null, selectedSplitRule);
 
   if (owner.supabase) {
     const { data: existingOffering } = await owner.supabase
@@ -59,7 +64,11 @@ export async function POST(req: NextRequest) {
       .eq('id', offeringId)
       .eq('profile_slug', slug)
       .maybeSingle();
-    nextMetadata = buildCommunityPublishingMetadata((existingOffering?.metadata as string[] | undefined) || fallbackMetadata, publishingAccount?.account || null);
+    nextMetadata = buildCommunityPublishingMetadata(
+      (existingOffering?.metadata as string[] | undefined) || fallbackMetadata,
+      publishingAccount?.account || null,
+      selectedSplitRule
+    );
 
     const { error } = await owner.supabase
       .from('creator_profile_offerings')

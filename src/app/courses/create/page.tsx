@@ -22,10 +22,14 @@ import { requireWalletAction } from '@/app/lib/requireWalletAction';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
 import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
+import CommunitySplitRulePicker from '@/app/components/community/CommunitySplitRulePicker';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
-import { fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
+import { extractCommunitySplitRuleId } from '@/app/lib/communityPublishing';
+import { fetchPlatformAccount } from '@/app/lib/platformAccountsApi';
+import { createProfileOffering, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
+import type { RevenueSplitRuleRecord } from '@/app/lib/platformAccounts';
 
 // â”€â”€ 12 Course Category Definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Shared Pillar 3 category catalog
@@ -636,6 +640,10 @@ function CourseCreationPageContent() {
   const [verificationTier, setVerificationTier] = useState('Bronze');
   const [isFree, setIsFree] = useState(false);
   const [currentCourseId, setCurrentCourseId] = useState('');
+  const [currentMirrorOfferingId, setCurrentMirrorOfferingId] = useState(editOfferingId);
+  const [communitySplitRules, setCommunitySplitRules] = useState<RevenueSplitRuleRecord[]>([]);
+  const [selectedSplitRuleId, setSelectedSplitRuleId] = useState('');
+  const [communityLabel, setCommunityLabel] = useState('');
   const [workflowStatus, setWorkflowStatus] = useState<'draft' | 'under_review' | 'published'>('draft');
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -667,6 +675,7 @@ function CourseCreationPageContent() {
         const offering = data.profile.offerings.find((entry) => entry.id === editOfferingId);
         if (!offering) return;
         setMirrorOffering(offering);
+        setCurrentMirrorOfferingId(offering.id);
         setCourseTitle(offering.title || '');
         setCourseSubtitle(offering.type || '');
         setCourseDescription(offering.blurb || '');
@@ -678,6 +687,33 @@ function CourseCreationPageContent() {
       cancelled = true;
     };
   }, [editOfferingId, profileSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountSlug) {
+      setCommunitySplitRules([]);
+      setSelectedSplitRuleId('');
+      setCommunityLabel('');
+      return;
+    }
+    fetchPlatformAccount(accountSlug)
+      .then((detail) => {
+        if (cancelled) return;
+        const activeRules = detail.splitRules.filter((entry) => entry.status === 'active');
+        const existingRuleId = extractCommunitySplitRuleId(mirrorOffering?.metadata);
+        setCommunitySplitRules(activeRules);
+        setCommunityLabel(detail.account.displayName);
+        setSelectedSplitRuleId((current) => current || existingRuleId || activeRules[0]?.id || '');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommunitySplitRules([]);
+        setCommunityLabel('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSlug, mirrorOffering?.metadata]);
 
   // Refs
   const thumbnailRef = useRef<HTMLInputElement>(null);
@@ -867,14 +903,13 @@ const buildCoursePayload = (creatorAddress: string) => {
     status: string,
     overrides?: Partial<Pick<ProfileOffering, 'availabilityLabel' | 'availabilityTone' | 'ctaMode'>>
   ) => {
-    if (!editOfferingId) return;
     const activeProfileSlug = profileSlug || (await resolveCurrentCreatorProfileSlug());
     if (!activeProfileSlug) return;
     if (!profileSlug) setProfileSlug(activeProfileSlug);
-    await updateProfileOffering({
+    const nextPayload = {
       slug: activeProfileSlug,
       accountSlug: accountSlug || undefined,
-      offeringId: editOfferingId,
+      splitRuleId: selectedSplitRuleId || undefined,
       title: courseTitle.trim(),
       blurb: courseDescription.trim(),
       priceLabel: isFree ? 'Free' : `INDI ${Number(price || 0).toFixed(0)}`,
@@ -889,7 +924,26 @@ const buildCoursePayload = (creatorAddress: string) => {
       availabilityLabel: overrides?.availabilityLabel || mirrorOffering?.availabilityLabel || 'Enrollment open',
       availabilityTone: overrides?.availabilityTone || mirrorOffering?.availabilityTone || 'success',
       featured: mirrorOffering?.featured ?? false
+    } as const;
+    if (currentMirrorOfferingId) {
+      await updateProfileOffering({
+        offeringId: currentMirrorOfferingId,
+        ...nextPayload
+      });
+      return;
+    }
+    const created = await createProfileOffering({
+      ...nextPayload,
+      pillar: 'courses',
+      pillarLabel: 'Courses',
+      icon: '📚',
+      offeringType: level || 'Course',
+      image: thumbnailPreview || '',
+      href: appendAccountSlugToHref('/courses', accountSlug || undefined),
+      metadata: ['Created in Courses studio']
     });
+    setCurrentMirrorOfferingId(created.offeringId);
+    setMirrorOffering(created.offering as ProfileOffering);
   };
 
   const handleSaveDraft = async (): Promise<string> => {
@@ -1078,6 +1132,16 @@ const buildCoursePayload = (creatorAddress: string) => {
         <div className={`flex flex-1 ${simpleMode ? 'mx-auto mt-6 w-full max-w-5xl flex-col overflow-visible px-4 pb-12 sm:px-0' : 'overflow-hidden'}`}>
           <div className={`${simpleMode ? 'mb-6' : 'm-6 mb-0'}`}>
             <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+            {accountSlug ? (
+              <div className="mt-4">
+                <CommunitySplitRulePicker
+                  accountLabel={communityLabel}
+                  splitRules={communitySplitRules}
+                  selectedSplitRuleId={selectedSplitRuleId}
+                  onSelect={setSelectedSplitRuleId}
+                />
+              </div>
+            ) : null}
           </div>
           {/* Left Nav */}
           <div className={`${simpleMode ? 'w-full rounded-2xl border border-[#d4af37]/20 bg-[#101010] p-3' : 'w-56 bg-[#141414] border-r border-[#d4af37]/20 flex flex-col flex-shrink-0'}`}>

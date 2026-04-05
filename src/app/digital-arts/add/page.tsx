@@ -14,10 +14,14 @@ import Sidebar from '@/app/components/Sidebar';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
 import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
+import CommunitySplitRulePicker from '@/app/components/community/CommunitySplitRulePicker';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
-import { assertLegacyListingPublishAllowed, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
+import { extractCommunitySplitRuleId } from '@/app/lib/communityPublishing';
+import { fetchPlatformAccount } from '@/app/lib/platformAccountsApi';
+import { assertLegacyListingPublishAllowed, createProfileOffering, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
+import type { RevenueSplitRuleRecord } from '@/app/lib/platformAccounts';
 
 // Category definitions
 // Hiring or service categories -> Freelancing pillar (/freelancing)
@@ -1064,6 +1068,9 @@ function AddDigitalArtListingContent() {
   const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
+  const [communitySplitRules, setCommunitySplitRules] = useState<RevenueSplitRuleRecord[]>([]);
+  const [selectedSplitRuleId, setSelectedSplitRuleId] = useState('');
+  const [communityLabel, setCommunityLabel] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<ListingForm>(defaultForm);
@@ -1115,6 +1122,33 @@ function AddDigitalArtListingContent() {
     };
   }, [editOfferingId, profileSlug]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountSlug) {
+      setCommunitySplitRules([]);
+      setSelectedSplitRuleId('');
+      setCommunityLabel('');
+      return;
+    }
+    fetchPlatformAccount(accountSlug)
+      .then((detail) => {
+        if (cancelled) return;
+        const activeRules = detail.splitRules.filter((entry) => entry.status === 'active');
+        const existingRuleId = extractCommunitySplitRuleId(mirrorOffering?.metadata);
+        setCommunitySplitRules(activeRules);
+        setCommunityLabel(detail.account.displayName);
+        setSelectedSplitRuleId((current) => current || existingRuleId || activeRules[0]?.id || '');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommunitySplitRules([]);
+        setCommunityLabel('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSlug, mirrorOffering?.metadata]);
+
   // Validation per step
   const canProceed = (): boolean => {
     if (step === 1) return !!form.categoryId && !!form.subcategory;
@@ -1141,48 +1175,69 @@ function AddDigitalArtListingContent() {
       if (!profileSlug) setProfileSlug(activeProfileSlug);
       await assertLegacyListingPublishAllowed(activeProfileSlug, Boolean(editOfferingId));
       await new Promise(r => setTimeout(r, 1800));
-      if (editOfferingId) {
-        const coverImage = form.imageUrls[0] || form.imageInput || mirrorOffering?.coverImage || '';
-        const availabilityTone: ProfileOffering['availabilityTone'] =
-          form.listingType === 'auction' ? 'warning' : form.listingType === 'licensing' ? 'default' : 'success';
-        const availabilityLabel =
-          form.listingType === 'auction'
-            ? 'Bidding live'
-            : form.listingType === 'commission'
-              ? 'Open for commissions'
-              : form.listingType === 'licensing'
-                ? 'Licensing available'
-                : 'Available now';
-        const ctaMode: NonNullable<ProfileOffering['ctaMode']> =
-          form.listingType === 'commission'
-            ? 'message'
+      const coverImage = form.imageUrls[0] || form.imageInput || mirrorOffering?.coverImage || '';
+      const availabilityTone: ProfileOffering['availabilityTone'] =
+        form.listingType === 'auction' ? 'warning' : form.listingType === 'licensing' ? 'default' : 'success';
+      const availabilityLabel =
+        form.listingType === 'auction'
+          ? 'Bidding live'
+          : form.listingType === 'commission'
+            ? 'Open for commissions'
             : form.listingType === 'licensing'
-              ? 'quote'
-              : 'buy';
-
+              ? 'Licensing available'
+              : 'Available now';
+      const ctaMode: NonNullable<ProfileOffering['ctaMode']> =
+        form.listingType === 'commission'
+          ? 'message'
+          : form.listingType === 'licensing'
+            ? 'quote'
+            : 'buy';
+      const nextPayload = {
+        slug: activeProfileSlug,
+        accountSlug: accountSlug || undefined,
+        splitRuleId: selectedSplitRuleId || undefined,
+        title: form.title.trim(),
+        blurb: form.description.trim(),
+        priceLabel: form.price ? `${form.currency} ${form.price}` : (form.buyNowPrice ? `${form.currency} ${form.buyNowPrice}` : mirrorOffering?.priceLabel || ''),
+        status: 'Active',
+        coverImage,
+        ctaMode,
+        ctaPreset:
+          form.listingType === 'commission'
+            ? 'message-first'
+            : form.listingType === 'licensing'
+              ? 'request-quote'
+              : 'collect-now',
+        merchandisingRank: mirrorOffering?.merchandisingRank ?? 0,
+        galleryOrder: form.imageUrls,
+        launchWindowStartsAt: mirrorOffering?.launchWindowStartsAt || '',
+        launchWindowEndsAt: mirrorOffering?.launchWindowEndsAt || '',
+        availabilityLabel,
+        availabilityTone,
+        featured: mirrorOffering?.featured ?? false
+      } as const;
+      if (editOfferingId) {
         await updateProfileOffering({
-          slug: activeProfileSlug,
-          accountSlug: accountSlug || undefined,
           offeringId: editOfferingId,
-          title: form.title.trim(),
-          blurb: form.description.trim(),
-          priceLabel: form.price ? `${form.currency} ${form.price}` : (form.buyNowPrice ? `${form.currency} ${form.buyNowPrice}` : mirrorOffering?.priceLabel || ''),
-          status: 'Active',
-          coverImage,
-          ctaMode,
-          ctaPreset:
+          ...nextPayload
+        });
+      } else {
+        await createProfileOffering({
+          ...nextPayload,
+          pillar: 'digital-arts',
+          pillarLabel: 'Digital Arts',
+          icon: CATEGORIES.find((entry) => entry.id === form.categoryId)?.icon || '🎨',
+          offeringType:
             form.listingType === 'commission'
-              ? 'message-first'
-              : form.listingType === 'licensing'
-                ? 'request-quote'
-                : 'collect-now',
-          merchandisingRank: mirrorOffering?.merchandisingRank ?? 0,
-          galleryOrder: form.imageUrls,
-          launchWindowStartsAt: mirrorOffering?.launchWindowStartsAt || '',
-          launchWindowEndsAt: mirrorOffering?.launchWindowEndsAt || '',
-          availabilityLabel,
-          availabilityTone,
-          featured: mirrorOffering?.featured ?? false
+              ? 'Commission'
+              : form.listingType === 'auction'
+                ? 'Auction'
+                : form.listingType === 'licensing'
+                  ? 'Licensing'
+                  : 'Edition',
+          image: coverImage,
+          href: appendAccountSlugToHref('/digital-arts', accountSlug || undefined),
+          metadata: ['Created in Digital Arts studio']
         });
       }
       setPublished(true);
@@ -1286,6 +1341,16 @@ function AddDigitalArtListingContent() {
             <div className="bg-[#141414] border border-white/5 rounded-2xl p-6">
               <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
               {accountSlug ? <div className="mt-4" /> : null}
+              {accountSlug ? (
+                <div className="mb-4">
+                  <CommunitySplitRulePicker
+                    accountLabel={communityLabel}
+                    splitRules={communitySplitRules}
+                    selectedSplitRuleId={selectedSplitRuleId}
+                    onSelect={setSelectedSplitRuleId}
+                  />
+                </div>
+              ) : null}
               {step === 1 && <Step1 form={form} update={update} simpleMode={simpleMode} />}
               {step === 2 && <Step2 form={form} update={update} simpleMode={simpleMode} />}
               {step === 3 && <Step3 form={form} update={update} simpleMode={simpleMode} />}
@@ -1384,6 +1449,16 @@ function AddDigitalArtListingContent() {
             <div className="bg-[#141414] border border-white/5 rounded-2xl p-6">
               <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
               {accountSlug ? <div className="mt-4" /> : null}
+              {accountSlug ? (
+                <div className="mb-4">
+                  <CommunitySplitRulePicker
+                    accountLabel={communityLabel}
+                    splitRules={communitySplitRules}
+                    selectedSplitRuleId={selectedSplitRuleId}
+                    onSelect={setSelectedSplitRuleId}
+                  />
+                </div>
+              ) : null}
               {step === 1 && <Step1 form={form} update={update} simpleMode={simpleMode} />}
               {step === 2 && <Step2 form={form} update={update} simpleMode={simpleMode} />}
               {step === 3 && <Step3 form={form} update={update} simpleMode={simpleMode} />}
