@@ -3,12 +3,14 @@ import { notFound } from 'next/navigation';
 import { getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
 import { getTreasuryByCommunitySlug } from '@/app/lib/platformTreasury';
 import { getCommunityEntityPresentation } from '@/app/lib/communityEntityPresentation';
+import { getCommunityTreasuryRollups } from '@/app/lib/communityMarketplace';
 
 export default async function CommunityTreasuryPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const [entity, treasuryData] = await Promise.all([getPlatformAccountBySlug(slug), getTreasuryByCommunitySlug(slug)]);
   if (!entity || !treasuryData) notFound();
   const presentation = await getCommunityEntityPresentation(entity.account, entity.members, entity.splitRules);
+  const treasuryRollups = await getCommunityTreasuryRollups(slug);
   const storefrontGroups = presentation.storefrontItems.reduce<Record<string, typeof presentation.storefrontItems>>((acc, item) => {
     const key = item.splitRuleId || item.splitLabel || 'Unrouted community offers';
     if (!acc[key]) acc[key] = [];
@@ -80,6 +82,57 @@ export default async function CommunityTreasuryPage({ params }: { params: Promis
           </div>
 
           <div className="space-y-6">
+            {treasuryRollups ? (
+              <div className="rounded-[32px] border border-[#d4af37]/18 bg-[linear-gradient(135deg,rgba(212,175,55,0.08),rgba(17,17,17,0.92))] p-6">
+                <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Treasury rollups</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Live intent matched against real treasury flow</h2>
+                <p className="mt-3 text-sm leading-7 text-white/66">
+                  These rollups combine current storefront routing intent with actual split-distribution activity already recorded for this treasury.
+                </p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    { label: 'Live routed offers', value: treasuryRollups.summary.liveOfferCount.toString() },
+                    { label: 'Projected gross intent', value: `$${treasuryRollups.summary.projectedGrossValue.toLocaleString()}` },
+                    { label: 'Realized gross flow', value: `$${treasuryRollups.summary.realizedGrossValue.toLocaleString()}` },
+                    { label: 'Realized treasury share', value: `$${treasuryRollups.summary.realizedTreasuryValue.toLocaleString()}` }
+                  ].map((metric) => (
+                    <div key={metric.label} className="rounded-[20px] border border-white/10 bg-black/20 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">{metric.label}</p>
+                      <p className="mt-2 text-xl font-semibold text-white">{metric.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-3">
+                  {treasuryRollups.rollups.map((rollup) => (
+                    <div key={rollup.routingKey} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{rollup.label}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">
+                            {rollup.liveOfferCount} live offers | {rollup.ledgerEntries} ledger matches
+                          </p>
+                        </div>
+                        <div className="grid gap-2 text-right text-xs text-white/62 sm:grid-cols-3 sm:text-left">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Projected</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${rollup.projectedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Realized gross</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${rollup.realizedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury share</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${rollup.realizedTreasuryValue.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
               <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Routing preview</p>
               <h2 className="mt-2 text-2xl font-semibold text-white">Live storefront offers grouped by split rule</h2>

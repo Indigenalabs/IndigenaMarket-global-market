@@ -1,5 +1,6 @@
 ﻿import { NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
+import { listCommunityMarketplaceOffers } from '@/app/lib/communityMarketplace';
 
 type R = Record<string, unknown>;
 
@@ -11,8 +12,12 @@ function fallbackMentors() { return [{ mentorId: 'm-1', name: 'Mentor' }]; }
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string[] }> }) {
   const { slug = [] } = await params;
   const [a] = slug;
+  const url = new URL(_req.url);
 
   if (!isSupabaseServerConfigured()) {
+    if (a === 'marketplace') {
+      return NextResponse.json({ data: await listCommunityMarketplaceOffers({ pillar: url.searchParams.get('pillar') || '', search: url.searchParams.get('q') || '' }) });
+    }
     if (a === 'forums') return NextResponse.json({ data: fallbackForums(), totalMembers: 1200 });
     if (a === 'events') return NextResponse.json({ data: fallbackEvents() });
     if (a === 'stories') return NextResponse.json({ data: fallbackStories() });
@@ -21,6 +26,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
   }
 
   const supabase = createSupabaseServerClient();
+  if (a === 'marketplace') {
+    return NextResponse.json({ data: await listCommunityMarketplaceOffers({ pillar: url.searchParams.get('pillar') || '', search: url.searchParams.get('q') || '' }) });
+  }
   if (a === 'forums') {
     const { data } = await supabase.from('community_forums').select('*').order('created_at', { ascending: false }).limit(100);
     return NextResponse.json({ data: (data || []).map((r: any) => ({ forumId: r.id, title: r.title, replyCount: Number(r.replies || 0), views: Number(r.views || 0) })), totalMembers: 1200 });

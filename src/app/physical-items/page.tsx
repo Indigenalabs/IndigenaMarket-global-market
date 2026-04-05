@@ -22,6 +22,9 @@ import PhysicalLimitedDrops from '../components/marketplace/physical-items/Physi
 import PhysicalFavoritesWatchlist from '../components/marketplace/physical-items/PhysicalFavoritesWatchlist';
 import MakerCollectionManager from '../components/marketplace/physical-items/MakerCollectionManager';
 import PhysicalAuctionSystem from '../components/marketplace/physical-items/PhysicalAuctionSystem';
+import CommunityMarketplaceRail from '@/app/components/community/CommunityMarketplaceRail';
+import { fetchCommunityMarketplaceOffers } from '@/app/lib/communityMarketplaceApi';
+import type { CommunityMarketplaceOffer } from '@/app/lib/communityMarketplace';
 import { PHYSICAL_MARKETPLACE_CATEGORIES, matchesPhysicalCategory, countItemsForPhysicalCategory, getPhysicalCategoryIdFromLabel } from '@/app/physical-items/data/pillar2Catalog';
 
 // â”€â”€â”€ Mock data (same as PhysicalItemsMarketplace) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -630,9 +633,11 @@ export default function PhysicalItemsViewAll() {
   const [shipsIntl, setShipsIntl] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [handmadeOnly, setHandmadeOnly] = useState(false);
+  const [communityOnly, setCommunityOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
+  const [communityOffers, setCommunityOffers] = useState<CommunityMarketplaceOffer[]>([]);
   const [likedItems, setLikedItems] = useState<Set<string>>(new Set());
   const [selectedItem, setSelectedItem] = useState<PhysicalItem | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -688,6 +693,20 @@ export default function PhysicalItemsViewAll() {
     addItem(deepLinkedItem);
   }, [addItem]);
 
+  useEffect(() => {
+    let active = true;
+    fetchCommunityMarketplaceOffers({ pillar: 'physical-items' })
+      .then((data) => {
+        if (active) setCommunityOffers(data);
+      })
+      .catch(() => {
+        if (active) setCommunityOffers([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const addToCart = (item: PhysicalItem) => {
     setCartEntries((prev) => {
       const existing = prev.find((e) => e.item.id === item.id);
@@ -712,6 +731,7 @@ export default function PhysicalItemsViewAll() {
     setShipsIntl(false);
     setVerifiedOnly(false);
     setHandmadeOnly(false);
+    setCommunityOnly(false);
     setPriceMin('');
     setPriceMax('');
     setSearchQuery('');
@@ -747,6 +767,32 @@ export default function PhysicalItemsViewAll() {
     return list;
   }, [activeCategory, activeNation, arOnly, shipsIntl, verifiedOnly, handmadeOnly, priceMin, priceMax, searchQuery, sortBy]);
 
+  const filteredCommunityOffers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const min = priceMin ? Number(priceMin) : null;
+    const max = priceMax ? Number(priceMax) : null;
+    const nationFilter = activeNation !== 'All Nations' ? activeNation.toLowerCase() : '';
+
+    return communityOffers.filter((offer) => {
+      if (q) {
+        const haystack = [
+          offer.title,
+          offer.description,
+          offer.communityName,
+          offer.communityNation,
+          offer.splitLabel,
+          offer.pillarLabel
+        ].join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (verifiedOnly && offer.communityVerificationStatus !== 'approved') return false;
+      if (nationFilter && !offer.communityNation.toLowerCase().includes(nationFilter)) return false;
+      if (min !== null && (offer.priceValue ?? 0) < min) return false;
+      if (max !== null && (offer.priceValue ?? 0) > max) return false;
+      return true;
+    });
+  }, [communityOffers, searchQuery, verifiedOnly, activeNation, priceMin, priceMax]);
+
   const visibleItems = filteredItems.slice(0, visibleCount);
   const hasMore = visibleCount < filteredItems.length;
 
@@ -778,7 +824,7 @@ export default function PhysicalItemsViewAll() {
   const resetAndSetSort = (v: string) => { setSortBy(v); setVisibleCount(PAGE_SIZE); };
   const resetToggle = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, val: T) => { setter(val); setVisibleCount(PAGE_SIZE); };
 
-  const hasActiveFilters = activeCategory !== 'all' || activeNation !== 'All Nations' || arOnly || shipsIntl || verifiedOnly || handmadeOnly || priceMin || priceMax;
+  const hasActiveFilters = activeCategory !== 'all' || activeNation !== 'All Nations' || arOnly || shipsIntl || verifiedOnly || handmadeOnly || communityOnly || priceMin || priceMax;
 
   const categoryCount = (cat: string) => countItemsForPhysicalCategory(ALL_ITEMS, cat);
 
@@ -995,6 +1041,7 @@ export default function PhysicalItemsViewAll() {
                 { label: 'AR Preview Available', value: arOnly, set: (v: boolean) => resetToggle(setArOnly, v) },
                 { label: 'Ships Internationally', value: shipsIntl, set: (v: boolean) => resetToggle(setShipsIntl, v) },
                 { label: 'Handmade Only', value: handmadeOnly, set: (v: boolean) => resetToggle(setHandmadeOnly, v) },
+                { label: 'Community-owned listings only', value: communityOnly, set: (v: boolean) => resetToggle(setCommunityOnly, v) },
               ].map(({ label, value, set }) => (
                 <label key={label} className="flex items-center justify-between cursor-pointer group">
                   <span className="text-sm text-gray-300 group-hover:text-white transition-colors">{label}</span>
@@ -1046,7 +1093,7 @@ export default function PhysicalItemsViewAll() {
                 { label: 'Ready to ship', value: `${filteredItems.filter((item) => item.inStock).length} items` },
                 { label: 'One-of-one', value: `${filteredItems.filter((item) => item.stockCount <= 1).length} pieces` },
                 { label: 'AR preview', value: `${filteredItems.filter((item) => item.hasARPreview).length} items` },
-                { label: 'Verified makers', value: `${filteredItems.filter((item) => item.isVerified).length} makers` },
+                { label: 'Community-owned', value: `${filteredCommunityOffers.length} listings` },
               ].map((metric) => (
                 <div key={metric.label} className="rounded-xl border border-white/10 bg-black/20 p-3">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-gray-500">{metric.label}</p>
@@ -1055,11 +1102,19 @@ export default function PhysicalItemsViewAll() {
               ))}
             </div>
           </section>
-          {filteredItems.length === 0 ? (
+
+          <CommunityMarketplaceRail
+            offers={filteredCommunityOffers}
+            title="Community-owned physical items"
+            subtitle="Community storefront listings now surface in the public marketplace too, while still retaining storefront ownership and treasury routing."
+            emptyLabel="No community-owned physical items match the current search and filter settings."
+          />
+
+          {(!communityOnly && filteredItems.length === 0) || (communityOnly && filteredCommunityOffers.length === 0) ? (
             /* Empty state */
             <div className="flex flex-col items-center justify-center py-28 text-center">
               <Package size={52} className="text-gray-700 mb-4" />
-              <p className="text-white font-semibold text-xl mb-2">No items found</p>
+              <p className="text-white font-semibold text-xl mb-2">{communityOnly ? 'No community-owned items found' : 'No items found'}</p>
               <p className="text-gray-500 text-sm mb-6">Try adjusting your search or filters</p>
               <button
                 onClick={clearFilters}
@@ -1070,32 +1125,33 @@ export default function PhysicalItemsViewAll() {
             </div>
           ) : (
             <>
-              <div className={`grid gap-5 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
-                {itemsWithSponsored.map((item, idx) =>
-                  item === 'sponsored' ? (
-                    <SponsoredCard key={`sponsored-${idx}`} />
-                  ) : (
-                    <ItemCard
-                      key={item.id}
-                      item={item}
-                      viewMode={viewMode}
-                      likedItems={likedItems}
-                      toggleLike={toggleLike}
-                      onSelect={handleSelectItem}
-                      onSave={saveItem}
-                    />
-                  )
-                )}
+              {!communityOnly ? (
+                <div className={`grid gap-5 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
+                  {itemsWithSponsored.map((item, idx) =>
+                    item === 'sponsored' ? (
+                      <SponsoredCard key={`sponsored-${idx}`} />
+                    ) : (
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        viewMode={viewMode}
+                        likedItems={likedItems}
+                        toggleLike={toggleLike}
+                        onSelect={handleSelectItem}
+                        onSave={saveItem}
+                      />
+                    )
+                  )}
 
-                {/* Skeleton loaders */}
-                {loading && Array.from({ length: 3 }).map((_, i) => (
-                  <SkeletonCard key={`sk-${i}`} viewMode={viewMode} />
-                ))}
-              </div>
+                  {loading && Array.from({ length: 3 }).map((_, i) => (
+                    <SkeletonCard key={`sk-${i}`} viewMode={viewMode} />
+                  ))}
+                </div>
+              ) : null}
 
               {/* IntersectionObserver anchor */}
               <div ref={loadMoreRef} className="h-10 mt-6 flex items-center justify-center">
-                {hasMore && !loading && (
+                {!communityOnly && hasMore && !loading && (
                   <button
                     onClick={loadMore}
                     className="px-8 py-2.5 bg-[#141414] border border-[#d4af37]/30 rounded-full text-[#d4af37] text-sm font-medium hover:bg-[#d4af37]/10 hover:border-[#d4af37] transition-all"
@@ -1103,7 +1159,7 @@ export default function PhysicalItemsViewAll() {
                     Load More Items
                   </button>
                 )}
-                {!hasMore && filteredItems.length > 0 && (
+                {!communityOnly && !hasMore && filteredItems.length > 0 && (
                   <p className="text-gray-600 text-sm">All {filteredItems.length} items shown</p>
                 )}
               </div>
