@@ -103,6 +103,18 @@ const REPRESENTATIVE_COPY: Record<string, Omit<CommunityRepresentativeProfile, '
 const STOREFRONT_ITEMS: Record<string, CommunityStorefrontItem[]> = {
   'riverstone-arts-council': [
     {
+      id: 'riverstone-heritage-print',
+      title: 'Riverstone Heritage Print',
+      subtitle: 'Community-issued digital print release',
+      description: 'A digital arts release commissioned through the community storefront so creator revenue and treasury routing stay linked from the first sale onward.',
+      priceLabel: '$160',
+      image: '/launchpad/artist-tour.svg',
+      pillarLabel: 'Digital arts',
+      splitLabel: '70% makers | 30% community treasury',
+      ctaLabel: 'Collect the print',
+      href: '/digital-arts/artwork/aw-101'
+    },
+    {
       id: 'riverstone-market-bundle',
       title: 'Riverstone Market Bundle',
       subtitle: 'Textiles, prints, and market-day packaging',

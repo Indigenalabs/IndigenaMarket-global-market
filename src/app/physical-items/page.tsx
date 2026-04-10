@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import {
@@ -22,6 +23,7 @@ import PhysicalLimitedDrops from '../components/marketplace/physical-items/Physi
 import PhysicalFavoritesWatchlist from '../components/marketplace/physical-items/PhysicalFavoritesWatchlist';
 import MakerCollectionManager from '../components/marketplace/physical-items/MakerCollectionManager';
 import PhysicalAuctionSystem from '../components/marketplace/physical-items/PhysicalAuctionSystem';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
 import CommunityMarketplaceRail from '@/app/components/community/CommunityMarketplaceRail';
 import { fetchCommunityMarketplaceOffers } from '@/app/lib/communityMarketplaceApi';
 import type { CommunityMarketplaceOffer } from '@/app/lib/communityMarketplace';
@@ -793,6 +795,11 @@ export default function PhysicalItemsViewAll() {
     });
   }, [communityOffers, searchQuery, verifiedOnly, activeNation, priceMin, priceMax]);
 
+  const mixedFeedCommunityOffers = useMemo(() => {
+    if (communityOnly) return filteredCommunityOffers;
+    return filteredCommunityOffers.slice(0, 3);
+  }, [communityOnly, filteredCommunityOffers]);
+
   const visibleItems = filteredItems.slice(0, visibleCount);
   const hasMore = visibleCount < filteredItems.length;
 
@@ -837,6 +844,60 @@ export default function PhysicalItemsViewAll() {
     });
     return result;
   }, [visibleItems]);
+
+  const marketplaceGridCards = useMemo(() => {
+    const cards: ReactNode[] = [];
+    let communityCardIndex = 0;
+    let physicalItemIndex = 0;
+
+    for (const item of itemsWithSponsored) {
+      if (!communityOnly && communityCardIndex < mixedFeedCommunityOffers.length && (physicalItemIndex === 0 || physicalItemIndex === 5 || physicalItemIndex === 11)) {
+        const offer = mixedFeedCommunityOffers[communityCardIndex];
+        cards.push(
+          <CommunityMarketplaceCard
+            key={`community-mixed-${offer.communitySlug}-${offer.id}`}
+            offer={offer}
+            mode="mixed"
+            className="h-full"
+          />
+        );
+        communityCardIndex += 1;
+      }
+
+      if (item === 'sponsored') {
+        cards.push(<SponsoredCard key={`sponsored-${cards.length}`} />);
+        continue;
+      }
+
+      cards.push(
+        <ItemCard
+          key={item.id}
+          item={item}
+          viewMode={viewMode}
+          likedItems={likedItems}
+          toggleLike={toggleLike}
+          onSelect={handleSelectItem}
+          onSave={saveItem}
+        />
+      );
+      physicalItemIndex += 1;
+    }
+
+    while (!communityOnly && communityCardIndex < mixedFeedCommunityOffers.length) {
+      const offer = mixedFeedCommunityOffers[communityCardIndex];
+      cards.push(
+        <CommunityMarketplaceCard
+          key={`community-mixed-tail-${offer.communitySlug}-${offer.id}`}
+          offer={offer}
+          mode="mixed"
+          className="h-full"
+        />
+      );
+      communityCardIndex += 1;
+    }
+
+    return cards;
+  }, [communityOnly, handleSelectItem, itemsWithSponsored, likedItems, mixedFeedCommunityOffers, saveItem, toggleLike, viewMode]);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -1110,7 +1171,7 @@ export default function PhysicalItemsViewAll() {
             emptyLabel="No community-owned physical items match the current search and filter settings."
           />
 
-          {(!communityOnly && filteredItems.length === 0) || (communityOnly && filteredCommunityOffers.length === 0) ? (
+          {(!communityOnly && filteredItems.length === 0 && mixedFeedCommunityOffers.length === 0) || (communityOnly && filteredCommunityOffers.length === 0) ? (
             /* Empty state */
             <div className="flex flex-col items-center justify-center py-28 text-center">
               <Package size={52} className="text-gray-700 mb-4" />
@@ -1127,21 +1188,7 @@ export default function PhysicalItemsViewAll() {
             <>
               {!communityOnly ? (
                 <div className={`grid gap-5 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
-                  {itemsWithSponsored.map((item, idx) =>
-                    item === 'sponsored' ? (
-                      <SponsoredCard key={`sponsored-${idx}`} />
-                    ) : (
-                      <ItemCard
-                        key={item.id}
-                        item={item}
-                        viewMode={viewMode}
-                        likedItems={likedItems}
-                        toggleLike={toggleLike}
-                        onSelect={handleSelectItem}
-                        onSave={saveItem}
-                      />
-                    )
-                  )}
+                  {marketplaceGridCards}
 
                   {loading && Array.from({ length: 3 }).map((_, i) => (
                     <SkeletonCard key={`sk-${i}`} viewMode={viewMode} />

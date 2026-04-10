@@ -32,7 +32,26 @@ export interface CommunityTreasuryRoutingRollup {
   projectedGrossValue: number;
   realizedGrossValue: number;
   realizedTreasuryValue: number;
+  realizedOrderCount: number;
   ledgerEntries: number;
+  sellThroughRate: number;
+  treasuryCaptureRate: number;
+  averageProjectedValue: number;
+  averageRealizedOrderValue: number;
+  offers: CommunityMarketplaceOffer[];
+}
+
+export interface CommunityStorefrontPerformanceRollup {
+  pillarLabel: string;
+  liveOfferCount: number;
+  projectedGrossValue: number;
+  realizedGrossValue: number;
+  realizedTreasuryValue: number;
+  realizedOrderCount: number;
+  ledgerEntries: number;
+  sellThroughRate: number;
+  treasuryCaptureRate: number;
+  averageProjectedValue: number;
   offers: CommunityMarketplaceOffer[];
 }
 
@@ -82,7 +101,20 @@ function matchesMarketplaceSearch(offer: CommunityMarketplaceOffer, search: stri
 function matchesPillar(offer: CommunityMarketplaceOffer, pillar?: string) {
   if (!pillar?.trim()) return true;
   const normalized = pillar.trim().toLowerCase();
-  return offer.pillarLabel.toLowerCase() === normalized || offer.href.toLowerCase().includes(`/${normalized}`);
+  const aliases: Record<string, string[]> = {
+    'digital-arts': ['digital art', 'digital arts'],
+    'physical-items': ['physical', 'physical item', 'physical items'],
+    'cultural-tourism': ['cultural tourism', 'tourism'],
+    'materials-tools': ['materials', 'tools', 'materials tools'],
+    'land-food': ['land food', 'food', 'land and food'],
+    courses: ['courses', 'education', 'events'],
+    freelancing: ['freelancing', 'services']
+  };
+  const normalizedCandidate = [offer.pillarLabel, offer.href, offer.sourceHref || '']
+    .join(' ')
+    .toLowerCase();
+  const matchTerms = aliases[normalized] || [normalized, normalized.replace(/-/g, ' ')];
+  return matchTerms.some((term) => normalizedCandidate.includes(term));
 }
 
 export async function listCommunityMarketplaceOffers(input?: { pillar?: string; search?: string }) {
@@ -127,7 +159,12 @@ export async function getCommunityTreasuryRollups(slug: string) {
           projectedGrossValue: 0,
           realizedGrossValue: 0,
           realizedTreasuryValue: 0,
+          realizedOrderCount: 0,
           ledgerEntries: 0,
+          sellThroughRate: 0,
+          treasuryCaptureRate: 0,
+          averageProjectedValue: 0,
+          averageRealizedOrderValue: 0,
           offers: []
         };
       }
@@ -151,12 +188,56 @@ export async function getCommunityTreasuryRollups(slug: string) {
     );
     rollup.ledgerEntries = treasury.ledger.filter((entry) =>
       rollup.offers.some((offer) => entry.counterparty.includes(offer.title) || entry.note.includes(offer.title))
-    ).length;
+        ).length;
+    rollup.realizedOrderCount = matchingDistributions.length;
+    rollup.sellThroughRate = rollup.liveOfferCount > 0 ? Number(((rollup.realizedOrderCount / rollup.liveOfferCount) * 100).toFixed(1)) : 0;
+    rollup.treasuryCaptureRate = rollup.realizedGrossValue > 0 ? Number(((rollup.realizedTreasuryValue / rollup.realizedGrossValue) * 100).toFixed(1)) : 0;
+    rollup.averageProjectedValue = rollup.liveOfferCount > 0 ? Number((rollup.projectedGrossValue / rollup.liveOfferCount).toFixed(2)) : 0;
+    rollup.averageRealizedOrderValue = rollup.realizedOrderCount > 0 ? Number((rollup.realizedGrossValue / rollup.realizedOrderCount).toFixed(2)) : 0;
+  }
+
+  const pillarPerformance = Object.values(
+    baseOffers.reduce<Record<string, CommunityStorefrontPerformanceRollup>>((acc, offer) => {
+      const key = offer.pillarLabel;
+      if (!acc[key]) {
+        acc[key] = {
+          pillarLabel: offer.pillarLabel,
+          liveOfferCount: 0,
+          projectedGrossValue: 0,
+          realizedGrossValue: 0,
+          realizedTreasuryValue: 0,
+          realizedOrderCount: 0,
+          ledgerEntries: 0,
+          sellThroughRate: 0,
+          treasuryCaptureRate: 0,
+          averageProjectedValue: 0,
+          offers: []
+        };
+      }
+      acc[key].offers.push(offer);
+      acc[key].liveOfferCount += 1;
+      acc[key].projectedGrossValue += offer.priceValue || 0;
+      return acc;
+    }, {})
+  );
+
+  for (const performance of pillarPerformance) {
+    const relatedRollups = rollups.filter((rollup) =>
+      rollup.offers.some((offer) => offer.pillarLabel === performance.pillarLabel)
+    );
+    performance.realizedGrossValue = relatedRollups.reduce((sum, rollup) => sum + rollup.realizedGrossValue, 0);
+    performance.realizedTreasuryValue = relatedRollups.reduce((sum, rollup) => sum + rollup.realizedTreasuryValue, 0);
+    performance.realizedOrderCount = relatedRollups.reduce((sum, rollup) => sum + rollup.realizedOrderCount, 0);
+    performance.ledgerEntries = relatedRollups.reduce((sum, rollup) => sum + rollup.ledgerEntries, 0);
+    performance.sellThroughRate = performance.liveOfferCount > 0 ? Number(((performance.realizedOrderCount / performance.liveOfferCount) * 100).toFixed(1)) : 0;
+    performance.treasuryCaptureRate = performance.realizedGrossValue > 0 ? Number(((performance.realizedTreasuryValue / performance.realizedGrossValue) * 100).toFixed(1)) : 0;
+    performance.averageProjectedValue = performance.liveOfferCount > 0 ? Number((performance.projectedGrossValue / performance.liveOfferCount).toFixed(2)) : 0;
   }
 
   return {
     treasury: treasury.treasury,
     rollups: rollups.sort((a, b) => b.projectedGrossValue - a.projectedGrossValue),
+    pillarPerformance: pillarPerformance.sort((a, b) => b.projectedGrossValue - a.projectedGrossValue),
     summary: {
       liveOfferCount: rollups.reduce((sum, rollup) => sum + rollup.liveOfferCount, 0),
       projectedGrossValue: rollups.reduce((sum, rollup) => sum + rollup.projectedGrossValue, 0),

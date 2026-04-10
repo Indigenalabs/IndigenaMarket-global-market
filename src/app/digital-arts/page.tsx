@@ -10,6 +10,7 @@ import Link from 'next/link';
 import Sidebar from '@/app/components/Sidebar';
 import ArtistMiniCard from '@/app/components/marketplace/digital-arts/ArtistMiniCard';
 import DigitalArtsStickyBanner from '@/app/components/marketplace/DigitalArtsStickyBanner';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
 import CommunityMarketplaceRail from '@/app/components/community/CommunityMarketplaceRail';
 import { DIGITAL_ART_CATEGORIES, DIGITAL_ART_CATEGORY_MEDIUM_MAP } from './data/pillar1Catalog';
 import { bidListing, buyListing, buyResaleListing, makeOffer } from '@/app/lib/digitalArtApi';
@@ -926,12 +927,43 @@ export default function ViewAllDigitalArts() {
     });
   }, [communityOffers, searchQuery, filters.minPrice, filters.maxPrice, filters.verifiedOnly]);
 
+  const mixedFeedCommunityOffers = React.useMemo(() => {
+    if (filters.communityOnly) return filteredCommunityOffers;
+    return filteredCommunityOffers.slice(0, 3);
+  }, [filteredCommunityOffers, filters.communityOnly]);
+
   // Build grid items with sponsored cards injected every 8
   const gridItems: React.ReactNode[] = [];
+  const communityInsertionIndexes = new Set([0, 5, 11]);
+  let communityCardIndex = 0;
   displayedArtworks.forEach((art: Art, idx: number) => {
+    if (!filters.communityOnly && communityInsertionIndexes.has(idx) && communityCardIndex < mixedFeedCommunityOffers.length) {
+      const offer = mixedFeedCommunityOffers[communityCardIndex];
+      gridItems.push(
+        <CommunityMarketplaceCard
+          key={`community-mixed-${offer.communitySlug}-${offer.id}`}
+          offer={offer}
+          mode="mixed"
+          className="h-full"
+        />
+      );
+      communityCardIndex += 1;
+    }
     if (idx > 0 && idx % 8 === 0) gridItems.push(<SponsoredCard key={`sp-${idx}`} />);
     gridItems.push(<ArtCard key={art.id} art={art} />);
   });
+  while (!filters.communityOnly && communityCardIndex < mixedFeedCommunityOffers.length) {
+    const offer = mixedFeedCommunityOffers[communityCardIndex];
+    gridItems.push(
+      <CommunityMarketplaceCard
+        key={`community-mixed-tail-${offer.communitySlug}-${offer.id}`}
+        offer={offer}
+        mode="mixed"
+        className="h-full"
+      />
+    );
+    communityCardIndex += 1;
+  }
 
   const activeFilterCount = [
     filters.category,
@@ -1147,7 +1179,7 @@ export default function ViewAllDigitalArts() {
             ) : null}
 
             {/* Empty state */}
-            {!loading && ((!filters.communityOnly && displayedArtworks.length === 0) || (filters.communityOnly && filteredCommunityOffers.length === 0)) && (
+            {!loading && ((!filters.communityOnly && displayedArtworks.length === 0 && mixedFeedCommunityOffers.length === 0) || (filters.communityOnly && filteredCommunityOffers.length === 0)) && (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <Palette size={48} className="text-gray-600 mb-4" />
                 <p className="text-white font-semibold text-lg">{filters.communityOnly ? 'No community-owned digital arts found' : 'No artworks found'}</p>

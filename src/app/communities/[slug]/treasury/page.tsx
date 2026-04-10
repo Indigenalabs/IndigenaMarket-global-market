@@ -109,10 +109,10 @@ export default async function CommunityTreasuryPage({ params }: { params: Promis
                         <div>
                           <p className="text-sm font-semibold text-white">{rollup.label}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">
-                            {rollup.liveOfferCount} live offers | {rollup.ledgerEntries} ledger matches
+                            {rollup.liveOfferCount} live offers | {rollup.realizedOrderCount} realized orders | {rollup.ledgerEntries} ledger matches
                           </p>
                         </div>
-                        <div className="grid gap-2 text-right text-xs text-white/62 sm:grid-cols-3 sm:text-left">
+                        <div className="grid gap-2 text-right text-xs text-white/62 sm:grid-cols-5 sm:text-left">
                           <div>
                             <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Projected</p>
                             <p className="mt-1 text-sm font-semibold text-white">${rollup.projectedGrossValue.toLocaleString()}</p>
@@ -125,9 +125,75 @@ export default async function CommunityTreasuryPage({ params }: { params: Promis
                             <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury share</p>
                             <p className="mt-1 text-sm font-semibold text-white">${rollup.realizedTreasuryValue.toLocaleString()}</p>
                           </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Sell-through</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{rollup.sellThroughRate}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury capture</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{rollup.treasuryCaptureRate}%</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">Avg listed value</p>
+                          <p className="mt-2 text-sm font-semibold text-white">${rollup.averageProjectedValue.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">Avg realized order</p>
+                          <p className="mt-2 text-sm font-semibold text-white">${rollup.averageRealizedOrderValue.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">Routing quality</p>
+                          <p className="mt-2 text-sm font-semibold text-white">
+                            {rollup.sellThroughRate >= 100 ? 'High demand route' : rollup.sellThroughRate >= 50 ? 'Active route' : 'Build demand'}
+                          </p>
                         </div>
                       </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {treasuryRollups ? (
+              <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
+                <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Storefront performance</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Which pillars are converting into treasury flow</h2>
+                <p className="mt-3 text-sm leading-7 text-white/66">
+                  This view keeps Phase 5 grounded in actual storefront behavior. We can see which community-owned pillars have listing depth, which ones are converting into sales activity, and where treasury capture is strongest.
+                </p>
+                <div className="mt-5 space-y-3">
+                  {treasuryRollups.pillarPerformance.map((pillar) => (
+                    <article key={pillar.pillarLabel} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{pillar.pillarLabel}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">
+                            {pillar.liveOfferCount} live offers | {pillar.realizedOrderCount} realized orders
+                          </p>
+                        </div>
+                        <div className="grid gap-2 text-right text-xs text-white/62 sm:grid-cols-4 sm:text-left">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Projected</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${pillar.projectedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Realized</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${pillar.realizedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Sell-through</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{pillar.sellThroughRate}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury capture</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{pillar.treasuryCaptureRate}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
                   ))}
                 </div>
               </div>
