@@ -419,9 +419,26 @@ export default function FinancialServicesOpsClient() {
       return;
     }
     const csv = [
-      'id,actor_id,wallet_address,status,gross_amount,fee_amount,net_amount,created_at',
+      'id,actor_id,profile_slug,destination_label,destination_type,destination_status,destination_last4,risk_level,review_reason,reserve_hold_amount,status,gross_amount,fee_amount,net_amount,created_at,updated_at',
       ...filteredPayouts.map((entry) =>
-        [entry.id, entry.actorId, entry.walletAddress, entry.status, entry.amount, entry.feeAmount, entry.netAmount, entry.createdAt].map(escapeCsv).join(',')
+        [
+          entry.id,
+          entry.actorId,
+          entry.profileSlug,
+          entry.destinationLabel,
+          entry.destinationType,
+          entry.destinationStatus,
+          entry.destinationLast4,
+          entry.riskLevel,
+          entry.reviewReason,
+          entry.reserveHoldAmount,
+          entry.status,
+          entry.amount,
+          entry.feeAmount,
+          entry.netAmount,
+          entry.createdAt,
+          entry.updatedAt
+        ].map(escapeCsv).join(',')
       )
     ].join('\n');
     triggerDownload('financial-payouts-export.csv', csv, 'text/csv; charset=utf-8');
@@ -1005,10 +1022,28 @@ export default function FinancialServicesOpsClient() {
           <div className="mt-4 space-y-3">
             {filteredPayouts.map((entry) => (
               <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-sm font-semibold text-white">{entry.walletAddress}</p>
-                <p className="mt-1 text-xs text-gray-500">${entry.amount.toFixed(2)} gross - fee ${entry.feeAmount.toFixed(2)} - net ${entry.netAmount.toFixed(2)}</p>
+                <p className="text-sm font-semibold text-white">{entry.destinationLabel || entry.walletAddress}</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  ${entry.amount.toFixed(2)} gross - fee ${entry.feeAmount.toFixed(2)} - net ${entry.netAmount.toFixed(2)}
+                  {entry.reserveHoldAmount > 0 ? ` - reserve ${entry.reserveHoldAmount.toFixed(2)}` : ''}
+                </p>
+                <div className="mt-3 grid gap-3 text-xs text-gray-400 md:grid-cols-2">
+                  <div className="rounded-xl border border-white/10 bg-[#0b0b0b] p-3">
+                    <p className="uppercase tracking-[0.16em] text-gray-500">Destination</p>
+                    <p className="mt-2 text-sm text-white">
+                      {entry.destinationType.replace('_', ' ')}
+                      {entry.destinationLast4 ? ` • •••• ${entry.destinationLast4}` : ''}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-500">{entry.destinationStatus}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-[#0b0b0b] p-3">
+                    <p className="uppercase tracking-[0.16em] text-gray-500">Risk and review</p>
+                    <p className="mt-2 text-sm text-white">{entry.riskLevel}</p>
+                    <p className="mt-1 text-[11px] text-gray-500">{entry.reviewReason || 'No extra review reason recorded'}</p>
+                  </div>
+                </div>
                 <select value={entry.status} onChange={(e) => void update('payout', entry.id, e.target.value)} className="mt-3 rounded-xl border border-white/10 bg-[#111111] px-3 py-2 text-sm text-white outline-none">
-                  {['requested', 'processing', 'paid', 'failed'].map((status) => <option key={status} value={status}>{status}</option>)}
+                  {['requested', 'queued', 'reviewing', 'processing', 'paid', 'failed', 'cancelled'].map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
               </div>
             ))}

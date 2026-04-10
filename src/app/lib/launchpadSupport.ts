@@ -6,6 +6,7 @@ import { calculateLaunchpadQuote } from '@/app/lib/launchpad';
 import { getLaunchpadCampaignRecordBySlug } from '@/app/lib/launchpadCampaignStore';
 import { ensureCommunityTreasury, recordChampionSponsorshipDisbursement, recordTreasuryContribution } from '@/app/lib/platformTreasury';
 import { getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
+import { createHybridFundingReceipt, type HybridFundingLane } from '@/app/lib/phase8HybridFunding';
 
 export interface LaunchpadReceiptRecord {
   id: string;
@@ -43,6 +44,44 @@ function nowIso() {
 
 function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function ensureLaunchpadHybridFundingReceipt(receipt: LaunchpadReceiptRecord) {
+  let fundingLane: HybridFundingLane = 'direct-beneficiary';
+  if (receipt.category === 'digital-champion') {
+    fundingLane = 'champion-operations';
+  } else if (receipt.linkedAccountSlug) {
+    const linkedAccount = await getPlatformAccountBySlug(receipt.linkedAccountSlug);
+    if (linkedAccount && ['community', 'tribe', 'collective'].includes(linkedAccount.account.accountType)) {
+      fundingLane = 'community-treasury';
+    }
+  }
+
+  return createHybridFundingReceipt({
+    source: 'launchpad',
+    lane: fundingLane,
+    nativeReceiptId: receipt.id,
+    amountGross: receipt.totalPaid,
+    platformFee: receipt.quote.platformFee,
+    processorFee: receipt.quote.processorFee,
+    serviceFee: 0,
+    beneficiaryNet: receipt.quote.beneficiaryNet,
+    supporterName: receipt.supporterName,
+    supporterEmail: receipt.supporterEmail,
+    beneficiaryLabel: receipt.beneficiaryName,
+    linkedAccountSlug: receipt.linkedAccountSlug,
+    campaignSlug: receipt.campaignSlug,
+    campaignTitle: receipt.campaignTitle,
+    visibility: receipt.visibility,
+    cadence: receipt.cadence,
+    note: receipt.note,
+    sourceReference: receipt.sourceReference,
+    metadata: {
+      category: receipt.category,
+      tierLabel: receipt.tierLabel,
+      badge: receipt.badge
+    }
+  });
 }
 
 function isRecentDuplicate(receipt: LaunchpadReceiptRecord, input: {
@@ -118,6 +157,7 @@ export async function createLaunchpadReceipt(input: {
     ? store.receipts.find((receipt) => receipt.sourceReference && receipt.sourceReference === input.sourceReference)
     : null;
   if (existingBySource) {
+    await ensureLaunchpadHybridFundingReceipt(existingBySource);
     return existingBySource;
   }
   const recentDuplicate = store.receipts.find((receipt) =>
@@ -129,6 +169,7 @@ export async function createLaunchpadReceipt(input: {
     })
   );
   if (recentDuplicate) {
+    await ensureLaunchpadHybridFundingReceipt(recentDuplicate);
     return recentDuplicate;
   }
   const quote = calculateLaunchpadQuote(amount);
@@ -185,6 +226,8 @@ export async function createLaunchpadReceipt(input: {
       });
     }
   }
+
+  await ensureLaunchpadHybridFundingReceipt(receipt);
 
   return receipt;
 }

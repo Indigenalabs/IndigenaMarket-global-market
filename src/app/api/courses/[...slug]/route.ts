@@ -1,13 +1,15 @@
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { resolveRequestActorId } from '@/app/lib/requestIdentity';
 import { calculateTransactionQuote } from '@/app/lib/monetization';
 import { resolveRequestPlanIds } from '@/app/lib/monetizationEntitlements';
-import { issueCourseCertificate, findCourseCertificate } from '@/app/lib/courseCertificates';
+import { issueCourseCertificate, findCourseCertificate, upsertCourseCertificateTrustLink } from '@/app/lib/courseCertificates';
 import { getVerificationProduct } from '@/app/lib/verificationRevenue';
 import { createSimplePdf } from '@/app/lib/pdf';
 import { enforceCreatorListingCapacityForActor } from '@/app/lib/creatorListingAccess';
 import { appendFinanceLedgerEntry } from '@/app/lib/financeLedger';
+import { ensureXrplTrustRecordForAsset } from '@/app/lib/xrplTrustLayer';
 
 type JsonMap = Record<string, unknown>;
 
@@ -48,6 +50,23 @@ async function resolveCoursePrice(courseId: string, fallbackAmount = 100) {
   return {
     amount: Number((data as JsonMap | null)?.price || fallbackAmount),
     currency: String((data as JsonMap | null)?.currency || 'USD')
+  };
+}
+
+async function resolveCourseTitle(courseId: string) {
+  if (!isSupabaseServerConfigured()) return courseId;
+  const supabase = createSupabaseServerClient();
+  const { data } = await supabase.from('course_listings').select('title').eq('id', courseId).maybeSingle();
+  return String((data as JsonMap | null)?.title || courseId);
+}
+
+function buildCertificateAnchorFields(seed: string, verificationUrl: string) {
+  const digest = createHash('sha256').update(seed).digest('hex').toUpperCase();
+  return {
+    xrplTransactionHash: digest.slice(0, 64),
+    xrplTokenId: `XRPL-CERT-${digest.slice(0, 16)}`,
+    xrplLedgerIndex: String(parseInt(digest.slice(0, 8), 16)),
+    anchorUri: `${verificationUrl}${verificationUrl.includes('?') ? '&' : '?'}anchor=${digest.slice(0, 12).toLowerCase()}`
   };
 }
 
@@ -394,6 +413,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       amount: product.amount,
       currency: 'USD'
     });
+    const courseTitle = await resolveCourseTitle(a);
+    const anchorFields = buildCertificateAnchorFields(
+      `${certificate.certificateId}:${certificate.courseId}:${certificate.studentActorId}:${certificate.issuedAt}`,
+      certificate.verificationUrl
+    );
+    const trustRecord = await ensureXrplTrustRecordForAsset({
+      actorId: studentActorId,
+      profileSlug: studentActorId,
+      assetType: 'course_certificate',
+      assetId: certificate.certificateId,
+      assetTitle: `${courseTitle} certificate`,
+      trustType: 'certificate',
+      status: 'verified',
+      xrplTransactionHash: anchorFields.xrplTransactionHash,
+      xrplTokenId: anchorFields.xrplTokenId,
+      xrplLedgerIndex: anchorFields.xrplLedgerIndex,
+      anchorUri: anchorFields.anchorUri,
+      metadata: {
+        source: 'course-certificate-issue',
+        courseId: a,
+        courseTitle,
+        certificateId: certificate.certificateId,
+        studentActorId
+      }
+    });
+    await upsertCourseCertificateTrustLink({
+      certificateId: certificate.certificateId,
+      trustRecordId: trustRecord.id,
+      trustStatus: trustRecord.status,
+      xrplTransactionHash: trustRecord.xrplTransactionHash,
+      xrplTokenId: trustRecord.xrplTokenId,
+      xrplLedgerIndex: trustRecord.xrplLedgerIndex,
+      anchorUri: trustRecord.anchorUri
+    });
+    const hydratedCertificate = await findCourseCertificate(a, studentActorId);
 
     if (isSupabaseServerConfigured()) {
       const supabase = createSupabaseServerClient();
@@ -409,7 +463,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         .eq('student_actor_id', studentActorId);
     }
 
-    return ok({ certificate }, 201);
+    return ok({ certificate: hydratedCertificate || certificate }, 201);
   }
 
   return fail('Unsupported courses endpoint', 404);

@@ -24,17 +24,17 @@ export default function CourseCertificatesAdminClient() {
     try {
       setBusyId(certificateId);
       setFeedback('');
-      const res = await fetchWithTimeout('/api/admin/courses/certificates', {
+      const res = await fetchWithTimeout(`/api/admin/courses/certificates/${certificateId}/${action}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ certificateId, action })
+        headers: { 'Content-Type': 'application/json' }
       });
       if (!res.ok) throw new Error(await parseApiError(res, `Failed to ${action} certificate`));
       const json = (await res.json()) as { certificate?: CourseCertificateRecord | null };
       if (json.certificate) {
         setRecords((current) => current.map((entry) => (entry.certificateId === certificateId ? json.certificate! : entry)));
-        setFeedback(`${action === 'revoke' ? 'Revoked' : 'Reissued'} ${certificateId}.`);
       }
+      await load();
+      setFeedback(`${action === 'revoke' ? 'Revoked' : 'Reissued'} ${certificateId}.`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Certificate update failed');
     } finally {
@@ -61,6 +61,7 @@ export default function CourseCertificatesAdminClient() {
               <th className="px-3 py-3">Course</th>
               <th className="px-3 py-3">Student</th>
               <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3">Trust</th>
               <th className="px-3 py-3">Amount</th>
               <th className="px-3 py-3">Issued</th>
               <th className="px-3 py-3">Verify</th>
@@ -74,6 +75,12 @@ export default function CourseCertificatesAdminClient() {
                 <td className="px-3 py-3">{entry.courseId}</td>
                 <td className="px-3 py-3">{entry.studentActorId}</td>
                 <td className="px-3 py-3">{entry.status}</td>
+                <td className="px-3 py-3">
+                  <div className="space-y-1">
+                    <p>{entry.trustStatus || 'pending'}</p>
+                    <p className="max-w-[180px] truncate text-xs text-gray-500">{entry.xrplTransactionHash || entry.trustRecordId || 'Not linked yet'}</p>
+                  </div>
+                </td>
                 <td className="px-3 py-3">{`${entry.currency} ${entry.amount}`}</td>
                 <td className="px-3 py-3">{entry.issuedAt ? new Date(entry.issuedAt).toLocaleDateString() : 'n/a'}</td>
                 <td className="px-3 py-3">

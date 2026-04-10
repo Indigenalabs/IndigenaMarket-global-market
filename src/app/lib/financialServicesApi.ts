@@ -18,7 +18,14 @@ export async function fetchFinancialServicesDashboard() {
   return (await res.json()).data as FinancialServicesDashboard;
 }
 
-export async function requestInstantPayoutApi(payload: { actorId: string; walletAddress: string; amount: number; }) {
+export async function requestInstantPayoutApi(payload: {
+  actorId: string;
+  walletAddress: string;
+  amount: number;
+  profileSlug?: string;
+  destinationId?: string;
+  note?: string;
+}) {
   const res = await fetchWithTimeout('/api/financial-services/instant-payout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   if (!res.ok) throw new Error(await parseApiError(res, 'Unable to request instant payout'));
   return (await res.json()).data.payout as InstantPayoutRequest;

@@ -8,6 +8,10 @@ import WalletSessionEntry from '@/app/components/WalletSessionEntry';
 import { fetchWalletSnapshot } from '@/app/lib/walletApi';
 import { fetchAccountSessionMe } from '@/app/lib/accountAuthClient';
 import { fetchMyIndiBalance, fetchMyIndiLedger, fetchMyIndiWithdrawals, recordMyIndiTopUp, requestMyIndiWithdrawal } from '@/app/lib/indiBalanceApi';
+import { fetchMyFiatRailsSnapshot, requestMyFiatRailsReview, saveMyFiatPayoutDestination } from '@/app/lib/fiatRailsApi';
+import { createMyXrplTrustRecord, fetchMyXrplTrustRecords } from '@/app/lib/xrplTrustApi';
+import type { FiatRailsSnapshot } from '@/app/lib/fiatRails';
+import type { XrplTrustAssetType, XrplTrustRecord, XrplTrustType } from '@/app/lib/xrplTrustLayer';
 
 const emptyWalletData = {
   address: '',
@@ -71,8 +75,18 @@ export default function WalletPage() {
   const [withdrawDestinationType, setWithdrawDestinationType] = useState<'bank_account' | 'payid' | 'debit_card' | 'manual_review'>('bank_account');
   const [withdrawDestinationLabel, setWithdrawDestinationLabel] = useState('Primary bank payout');
   const [withdrawAccountName, setWithdrawAccountName] = useState('');
+  const [withdrawInstitutionName, setWithdrawInstitutionName] = useState('');
   const [withdrawLast4, setWithdrawLast4] = useState('');
   const [withdrawalRequests, setWithdrawalRequests] = useState<Array<{ id: string; amount: number; netAmount: number; destinationLabel: string; destinationType: string; status: string; requestedAt: string }>>([]);
+  const [fiatRailsSnapshot, setFiatRailsSnapshot] = useState<FiatRailsSnapshot | null>(null);
+  const [xrplTrustRecords, setXrplTrustRecords] = useState<XrplTrustRecord[]>([]);
+  const [savingDestination, setSavingDestination] = useState(false);
+  const [requestingReview, setRequestingReview] = useState(false);
+  const [creatingTrustRecord, setCreatingTrustRecord] = useState(false);
+  const [trustAssetType, setTrustAssetType] = useState<XrplTrustAssetType>('digital_art');
+  const [trustType, setTrustType] = useState<XrplTrustType>('provenance');
+  const [trustAssetTitle, setTrustAssetTitle] = useState('Community provenance certificate');
+  const [trustAssetId, setTrustAssetId] = useState('community-provenance-1');
 
   const loadWallet = useCallback(async () => {
     setLoadingLive(true);
@@ -96,11 +110,13 @@ export default function WalletPage() {
         setCreatorProfileSlug('');
         return;
       }
-      const [snapshot, indiBalance, indiLedger, indiWithdrawals] = await Promise.all([
+      const [snapshot, indiBalance, indiLedger, indiWithdrawals, railsSnapshot, trustRecords] = await Promise.all([
         walletAddress ? fetchWalletSnapshot(walletAddress).catch(() => null) : Promise.resolve(null),
         account?.actorId ? fetchMyIndiBalance(profileSlug).catch(() => null) : Promise.resolve(null),
         account?.actorId ? fetchMyIndiLedger(profileSlug).catch(() => []) : Promise.resolve([]),
-        account?.actorId ? fetchMyIndiWithdrawals(profileSlug).catch(() => []) : Promise.resolve([])
+        account?.actorId ? fetchMyIndiWithdrawals(profileSlug).catch(() => []) : Promise.resolve([]),
+        account?.actorId ? fetchMyFiatRailsSnapshot(profileSlug).catch(() => null) : Promise.resolve(null),
+        account?.actorId ? fetchMyXrplTrustRecords(profileSlug).catch(() => []) : Promise.resolve([])
       ]);
       setWalletConnected(true);
       const ledgerTransactions = indiLedger.map((entry) => ({
@@ -137,6 +153,8 @@ export default function WalletPage() {
           requestedAt: request.requestedAt
         }))
       );
+      setFiatRailsSnapshot(railsSnapshot);
+      setXrplTrustRecords(trustRecords);
     } catch {
       setWalletConnected(false);
       setWalletData(emptyWalletData);
@@ -145,6 +163,8 @@ export default function WalletPage() {
       setIndiLifetimeCredits(0);
       setIndiLifetimeDebits(0);
       setWithdrawalRequests([]);
+      setFiatRailsSnapshot(null);
+      setXrplTrustRecords([]);
     } finally {
       setLoadingLive(false);
     }
@@ -207,6 +227,84 @@ export default function WalletPage() {
       setActionError(error instanceof Error ? error.message : 'Withdrawal request failed.');
     } finally {
       setSubmittingAction('');
+    }
+  };
+
+  const submitPayoutDestination = async () => {
+    if (!walletConnected) return;
+    if (!withdrawDestinationLabel.trim()) {
+      setActionError('Add a label before saving this payout destination.');
+      setActionMessage('');
+      return;
+    }
+    setSavingDestination(true);
+    setActionError('');
+    setActionMessage('');
+    try {
+      const result = await saveMyFiatPayoutDestination({
+        profileSlug: creatorProfileSlug,
+        label: withdrawDestinationLabel,
+        destinationType: withdrawDestinationType,
+        accountName: withdrawAccountName,
+        institutionName: withdrawInstitutionName,
+        last4: withdrawLast4,
+        isDefault: true,
+        metadata: { source: 'wallet-page' }
+      });
+      setFiatRailsSnapshot(result.snapshot);
+      setActionMessage(`Saved ${result.destination.label} into the fiat payout rail.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Saving payout destination failed.');
+    } finally {
+      setSavingDestination(false);
+    }
+  };
+
+  const submitReviewRequest = async () => {
+    if (!walletConnected) return;
+    setRequestingReview(true);
+    setActionError('');
+    setActionMessage('');
+    try {
+      const snapshot = await requestMyFiatRailsReview({
+        profileSlug: creatorProfileSlug,
+        note: 'Wallet owner requested payout/compliance review.'
+      });
+      setFiatRailsSnapshot(snapshot);
+      setActionMessage('Compliance review request recorded. This wallet is now queued for fiat rails review.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Compliance review request failed.');
+    } finally {
+      setRequestingReview(false);
+    }
+  };
+
+  const submitTrustRecord = async () => {
+    if (!walletConnected) return;
+    if (!trustAssetId.trim() || !trustAssetTitle.trim()) {
+      setActionError('Add both an asset id and title before creating an XRPL trust record.');
+      setActionMessage('');
+      return;
+    }
+    setCreatingTrustRecord(true);
+    setActionError('');
+    setActionMessage('');
+    try {
+      const record = await createMyXrplTrustRecord({
+        profileSlug: creatorProfileSlug,
+        assetType: trustAssetType,
+        assetId: trustAssetId,
+        assetTitle: trustAssetTitle,
+        trustType,
+        status: 'draft',
+        metadata: { source: 'wallet-page' }
+      });
+      setXrplTrustRecords((current) => [record, ...current]);
+      setActionMessage(`Created a draft ${record.trustType} record for ${record.assetTitle}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Creating XRPL trust record failed.');
+    } finally {
+      setCreatingTrustRecord(false);
     }
   };
 
@@ -472,6 +570,12 @@ export default function WalletPage() {
                     placeholder="Account holder"
                   />
                   <input
+                    value={withdrawInstitutionName}
+                    onChange={(event) => setWithdrawInstitutionName(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Institution / bank"
+                  />
+                  <input
                     value={withdrawLast4}
                     onChange={(event) => setWithdrawLast4(event.target.value)}
                     maxLength={4}
@@ -487,6 +591,14 @@ export default function WalletPage() {
                     className="flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
                     placeholder="50"
                   />
+                  <button
+                    onClick={submitPayoutDestination}
+                    disabled={!walletConnected || savingDestination}
+                    className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingDestination ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Save destination
+                  </button>
                   <button
                     onClick={submitWithdrawal}
                     disabled={!walletConnected || submittingAction === 'withdraw'}
@@ -506,6 +618,40 @@ export default function WalletPage() {
 
               <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                 <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-white font-medium">Fiat rails readiness</p>
+                    <p className="text-gray-400 text-xs">Phase 6 compliance and payout onboarding for this managed wallet.</p>
+                  </div>
+                  <Shield size={16} className="text-[#d4af37]" />
+                </div>
+                <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {[
+                    { label: 'KYC', value: fiatRailsSnapshot?.readiness.kycApproved ? 'Approved' : (fiatRailsSnapshot?.complianceProfile?.kycStatus || 'Pending') },
+                    { label: 'AML', value: fiatRailsSnapshot?.readiness.amlApproved ? 'Approved' : (fiatRailsSnapshot?.complianceProfile?.amlStatus || 'Pending') },
+                    { label: 'Payouts', value: fiatRailsSnapshot?.readiness.payoutEnabled ? 'Enabled' : 'Review needed' },
+                    { label: 'Instant rail', value: fiatRailsSnapshot?.readiness.instantPayoutReady ? 'Ready' : 'Not ready' }
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-lg border border-white/5 bg-white/5 px-3 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{item.label}</p>
+                      <p className="mt-1 text-sm font-medium text-white">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={submitReviewRequest}
+                    disabled={!walletConnected || requestingReview}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 px-4 py-2 text-sm font-semibold text-[#d4af37] transition-all hover:bg-[#d4af37]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {requestingReview ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Request compliance review
+                  </button>
+                  <p className="text-xs text-gray-500">{fiatRailsSnapshot?.destinations?.length || 0} saved payout destinations</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
                   <p className="text-white font-medium">Withdrawal Status</p>
                   <p className="text-xs text-gray-500">{withdrawalRequests.length} requests</p>
                 </div>
@@ -521,6 +667,97 @@ export default function WalletPage() {
                       <div className="text-right">
                         <p className="text-sm text-[#d4af37]">{request.netAmount.toLocaleString()} net</p>
                         <p className="text-xs uppercase tracking-[0.16em] text-gray-400">{request.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-white font-medium">Saved payout destinations</p>
+                  <p className="text-xs text-gray-500">{fiatRailsSnapshot?.destinations?.length || 0} destinations</p>
+                </div>
+                <div className="space-y-2">
+                  {(fiatRailsSnapshot?.destinations?.length || 0) === 0 ? (
+                    <p className="text-xs text-gray-500">No payout destinations saved yet. Save one from the withdrawal form above.</p>
+                  ) : fiatRailsSnapshot?.destinations.slice(0, 4).map((destination) => (
+                    <div key={destination.id} className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                      <div>
+                        <p className="text-sm text-white">{destination.label}</p>
+                        <p className="text-xs text-gray-500">
+                          {destination.destinationType.replace('_', ' ')}{destination.last4 ? ` • •••• ${destination.last4}` : ''}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs uppercase tracking-[0.16em] text-gray-400">{destination.status}</p>
+                        {destination.isDefault ? <p className="text-xs text-[#d4af37]">Default</p> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3">
+                  <p className="text-white font-medium">XRPL trust layer</p>
+                  <p className="text-gray-400 text-xs">Phase 7 provenance, authenticity, and certificate anchors start here.</p>
+                </div>
+                <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <select
+                    value={trustAssetType}
+                    onChange={(event) => setTrustAssetType(event.target.value as XrplTrustAssetType)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                  >
+                    <option value="digital_art">Digital art</option>
+                    <option value="physical_item">Physical item</option>
+                    <option value="course_certificate">Course certificate</option>
+                    <option value="community_certificate">Community certificate</option>
+                  </select>
+                  <select
+                    value={trustType}
+                    onChange={(event) => setTrustType(event.target.value as XrplTrustType)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                  >
+                    <option value="provenance">Provenance</option>
+                    <option value="authenticity">Authenticity</option>
+                    <option value="certificate">Certificate</option>
+                  </select>
+                  <input
+                    value={trustAssetTitle}
+                    onChange={(event) => setTrustAssetTitle(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Asset title"
+                  />
+                  <input
+                    value={trustAssetId}
+                    onChange={(event) => setTrustAssetId(event.target.value)}
+                    className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50"
+                    placeholder="Asset id"
+                  />
+                </div>
+                <div className="mb-4">
+                  <button
+                    onClick={submitTrustRecord}
+                    disabled={!walletConnected || creatingTrustRecord}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 px-4 py-2 text-sm font-semibold text-[#d4af37] transition-all hover:bg-[#d4af37]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {creatingTrustRecord ? <Loader2 size={16} className="animate-spin" /> : null}
+                    Create trust record
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {xrplTrustRecords.length === 0 ? (
+                    <p className="text-xs text-gray-500">No XRPL trust anchors yet for this wallet.</p>
+                  ) : xrplTrustRecords.slice(0, 4).map((record) => (
+                    <div key={record.id} className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                      <div>
+                        <p className="text-sm text-white">{record.assetTitle}</p>
+                        <p className="text-xs text-gray-500">{record.assetType.replace('_', ' ')} • {record.trustType}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs uppercase tracking-[0.16em] text-gray-400">{record.status}</p>
+                        <p className="text-xs text-[#d4af37]">{new Date(record.createdAt).toLocaleDateString()}</p>
                       </div>
                     </div>
                   ))}

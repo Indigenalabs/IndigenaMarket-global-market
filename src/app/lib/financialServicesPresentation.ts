@@ -73,14 +73,14 @@ export function buildFinancialAuditHistory(data: FinancialServicesDashboard): Fi
     entity: 'payout',
     entityId: entry.id,
     pillar: 'platform-finance',
-    title: entry.walletAddress,
+    title: entry.destinationLabel || entry.walletAddress,
     status: entry.status,
     actorId: entry.actorId,
     sourceReference: entry.id,
     amount: entry.netAmount,
     currency: 'USD',
-    note: 'Instant payout queue update',
-    occurredAt: entry.createdAt
+    note: entry.reviewReason ? `Instant payout queue update (${entry.reviewReason})` : 'Instant payout queue update',
+    occurredAt: entry.updatedAt || entry.createdAt
   }));
 
   const withdrawalEntries: FinancialAuditHistoryEntry[] = data.indiWithdrawals.map((entry) => ({
@@ -210,14 +210,14 @@ export function buildPayoutAuditHistory(
       queue: 'instant-payouts',
       status: entry.status,
       actorId: entry.actorId,
-      destination: entry.walletAddress,
+      destination: entry.destinationLabel || entry.walletAddress,
       sourceReference: entry.id,
       amount: entry.amount,
       feeAmount: entry.feeAmount,
       netAmount: entry.netAmount,
       currency: 'USD',
-      note: 'Instant payout lifecycle update',
-      occurredAt: entry.createdAt
+      note: entry.reviewReason ? `Instant payout lifecycle update (${entry.reviewReason})` : 'Instant payout lifecycle update',
+      occurredAt: entry.updatedAt || entry.createdAt
     }));
 
   const withdrawalEntries: FinancialPayoutAuditHistoryEntry[] = data.indiWithdrawals

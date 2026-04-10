@@ -1,12 +1,18 @@
-﻿import Link from 'next/link';
+import Link from 'next/link';
 import DigitalArtsFrame from '@/app/digital-arts/components/DigitalArtsFrame';
 import { getArtworkById, getArtistById, collections } from '@/app/digital-arts/data/pillar1Showcase';
 import { ArtworkTile, CollectionTile } from '@/app/digital-arts/components/DigitalArtsCards';
+import { findXrplTrustRecordByAsset } from '@/app/lib/xrplTrustLayer';
 
 export default async function ArtworkDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const artwork = getArtworkById(id);
   const artist = getArtistById(artwork.artistId);
+  const trustRecord = await findXrplTrustRecordByAsset({
+    assetType: 'digital_art',
+    assetId: id,
+    trustType: 'provenance'
+  }).catch(() => null);
 
   return (
     <DigitalArtsFrame title={artwork.title} subtitle={`By ${artwork.artist} • ${artwork.nation}`}>
@@ -42,6 +48,31 @@ export default async function ArtworkDetailPage({ params }: { params: Promise<{ 
         </div>
       </section>
 
+      <section className="rounded-2xl border border-[#d4af37]/20 bg-[#101010] p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[#d4af37]">XRPL Provenance</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">Public trust record</h3>
+            <p className="mt-2 text-sm text-gray-300">
+              {trustRecord
+                ? 'This artwork exposes its provenance anchor directly on the public detail page.'
+                : 'A public trust anchor has not been published for this artwork yet.'}
+            </p>
+          </div>
+          <div className="rounded-full border border-white/10 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white">
+            {trustRecord?.status || 'pending'}
+          </div>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <Proof label="Trust record" value={trustRecord?.id || 'Not linked yet'} />
+          <Proof label="XRPL transaction" value={trustRecord?.xrplTransactionHash || 'Pending anchor'} />
+          <Proof label="Token ID" value={trustRecord?.xrplTokenId || 'Pending token'} />
+          <Proof label="Ledger index" value={trustRecord?.xrplLedgerIndex || 'Pending ledger'} />
+          <Proof label="Anchor URI" value={trustRecord?.anchorUri || 'Pending anchor URI'} />
+          <Proof label="Trust type" value={trustRecord?.trustType || 'provenance'} />
+        </div>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-3">
         {collections.map((collection) => (
           <CollectionTile key={collection.id} collection={collection} />
@@ -57,3 +88,11 @@ export default async function ArtworkDetailPage({ params }: { params: Promise<{ 
   );
 }
 
+function Proof({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+      <p className="text-gray-400">{label}</p>
+      <p className="mt-2 break-all text-white">{value}</p>
+    </div>
+  );
+}

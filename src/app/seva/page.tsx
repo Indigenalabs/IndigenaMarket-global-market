@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { donateSeva, fetchSevaCauses, fetchSevaPlatformStats, requestSevaProject, type SevaCause } from '@/app/lib/sevaApi';
 import { requireWalletAction } from '@/app/lib/requireWalletAction';
@@ -228,6 +229,7 @@ const mapCauseToProject = (cause: SevaCause): SevaProject => ({
 });
 
 export default function SevaPage() {
+  const router = useRouter();
   const [activePillar, setActivePillar] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedFund, setSelectedFund] = useState<'all' | FundId>('all');
@@ -298,11 +300,15 @@ export default function SevaPage() {
     setDonationStatus({ type: 'idle' });
     try {
       const { wallet } = await requireWalletAction('contribute through Seva');
-      await donateSeva(wallet, causeId, amount, message);
+      const response = await donateSeva(wallet, causeId, amount, message);
       setDonationStatus({
         type: 'success',
         message: `Contribution confirmed: $${amount.toLocaleString()} sent through Seva.`
       });
+      if (response.redirectUrl) {
+        router.push(response.redirectUrl);
+        return;
+      }
     } catch (error) {
       setDonationStatus({
         type: 'error',

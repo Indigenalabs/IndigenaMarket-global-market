@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { 
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import {
   X, Heart, Share2, Flag, Clock, Gavel, ShoppingCart, 
   Verified, Globe, Palette, Brush, Layers, History,
   ChevronLeft, ChevronRight, User,
@@ -9,6 +10,8 @@ import {
   Wallet, Loader2, QrCode, ArrowUpRight
 } from 'lucide-react';
 import ArtistMiniCard from './ArtistMiniCard';
+import { fetchXrplTrustRecordForAsset } from '@/app/lib/xrplTrustApi';
+import type { XrplTrustRecord } from '@/app/lib/xrplTrustLayer';
 
 interface Artwork {
   id: string;
@@ -75,6 +78,29 @@ export default function ArtDetailModal({
   const [resalePrice, setResalePrice] = useState(artwork.price);
   const [royaltyNote] = useState(10); // 10% creator royalty on resales
   const [listingState, setListingState] = useState<'idle' | 'listed' | 'loading'>('idle');
+  const [trustRecord, setTrustRecord] = useState<XrplTrustRecord | null>(null);
+  const [loadingTrust, setLoadingTrust] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTrust() {
+      try {
+        setLoadingTrust(true);
+        const record = await fetchXrplTrustRecordForAsset({
+          assetType: 'digital_art',
+          assetId: artwork.id,
+          trustType: 'provenance'
+        }).catch(() => null);
+        if (!cancelled) setTrustRecord(record);
+      } finally {
+        if (!cancelled) setLoadingTrust(false);
+      }
+    }
+    if (isOpen && artwork.id) void loadTrust();
+    return () => {
+      cancelled = true;
+    };
+  }, [artwork.id, isOpen]);
 
   if (!isOpen) return null;
 
@@ -297,9 +323,15 @@ export default function ArtDetailModal({
                   <Shield size={28} className="text-[#d4af37] flex-shrink-0" />
                   <div>
                     <p className="text-white font-semibold text-sm">Certificate of Authenticity</p>
-                    <p className="text-gray-400 text-xs">Verified on-chain · Issued by Indigena Market</p>
+                    <p className="text-gray-400 text-xs">
+                      {loadingTrust ? 'Checking XRPL anchor...' : trustRecord ? 'Verified on-chain · Issued by Indigena Market' : 'Awaiting XRPL provenance anchor'}
+                    </p>
                   </div>
-                  <CheckCircle size={18} className="text-green-400 ml-auto flex-shrink-0" />
+                  {trustRecord ? (
+                    <CheckCircle size={18} className="text-green-400 ml-auto flex-shrink-0" />
+                  ) : (
+                    <Clock size={18} className="text-[#d4af37] ml-auto flex-shrink-0" />
+                  )}
                 </div>
 
                 {/* Sacred flag */}
@@ -359,6 +391,13 @@ export default function ArtDetailModal({
                       {artwork.culturalProtocol || 'Standard IP Agreement v2'}
                     </span>
                   </div>
+                  <div className="flex items-center justify-between p-3 bg-[#0a0a0a] rounded-lg">
+                    <div className="flex items-center gap-2 text-gray-400 text-sm">
+                      <Shield size={14} className="text-[#d4af37]" />
+                      Trust Status
+                    </div>
+                    <span className="text-white font-medium text-sm">{trustRecord?.status || 'pending'}</span>
+                  </div>
                 </div>
 
                 {/* On-chain anchors */}
@@ -367,14 +406,29 @@ export default function ArtDetailModal({
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-xs">XRPL Tx ID</span>
                     <span className="text-[#d4af37] text-xs font-mono truncate max-w-[160px]">
-                      {artwork.xrplTxId || `XRPL_${artwork.id}_PENDING`}
+                      {trustRecord?.xrplTransactionHash || artwork.xrplTxId || `XRPL_${artwork.id}_PENDING`}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-xs">IPFS Metadata</span>
                     <span className="text-[#d4af37] text-xs font-mono truncate max-w-[160px]">
-                      {artwork.ipfsHash || `Qm${artwork.id}abc...def`}
+                      {trustRecord?.anchorUri || artwork.ipfsHash || `Qm${artwork.id}abc...def`}
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400 text-xs">Token ID</span>
+                    <span className="text-[#d4af37] text-xs font-mono truncate max-w-[160px]">
+                      {trustRecord?.xrplTokenId || 'Pending token'}
+                    </span>
+                  </div>
+                  <div className="pt-2">
+                    <Link
+                      href={`/digital-arts/artwork/${artwork.id}/provenance`}
+                      className="inline-flex items-center gap-2 text-xs font-medium text-[#d4af37] hover:text-[#f3deb1]"
+                    >
+                      View full public provenance
+                      <ArrowUpRight size={13} />
+                    </Link>
                   </div>
                 </div>
               </div>

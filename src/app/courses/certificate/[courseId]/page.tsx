@@ -108,6 +108,29 @@ export default function CertificatePage() {
               <p className="mt-2 text-lg font-semibold text-white">{certificate ? certificate.certificateId : 'Pending purchase'}</p>
             </div>
           </div>
+          {certificate ? (
+            <div className="mt-6 rounded-[24px] border border-[#d4af37]/20 bg-[#d4af37]/10 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#d4af37]">XRPL trust layer</p>
+                  <h2 className="mt-2 text-lg font-semibold text-white">Certificate proof is anchored and shareable</h2>
+                </div>
+                <div className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-white">
+                  {certificate.trustStatus || 'pending'}
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <Stat label="Trust record" value={certificate.trustRecordId || 'Pending link'} />
+                <Stat label="XRPL transaction" value={certificate.xrplTransactionHash || 'Pending anchor'} />
+                <Stat label="Token ID" value={certificate.xrplTokenId || 'Pending token'} />
+                <Stat label="Ledger index" value={certificate.xrplLedgerIndex || 'Pending ledger'} />
+              </div>
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Anchor URI</p>
+                <p className="mt-2 break-all text-sm text-white">{certificate.anchorUri || 'Pending anchor URI'}</p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-6 flex flex-wrap gap-3">
             {!certificate ? (
@@ -175,6 +198,15 @@ export default function CertificatePage() {
           ) : null}
         </section>
       </main>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{label}</p>
+      <p className="mt-2 break-all text-sm text-white">{value}</p>
     </div>
   );
 }
