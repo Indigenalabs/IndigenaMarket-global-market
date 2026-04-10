@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { appendIndiLedgerEntry, getIndiBalanceSnapshot, listIndiLedgerEntries } from '@/app/lib/indiBalanceLedger';
-import { resolveRequestActorId } from '@/app/lib/requestIdentity';
+import { resolveRequestActorId, resolveRequestIdentity } from '@/app/lib/requestIdentity';
 import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
 import { createIndiWithdrawalRequest, listIndiWithdrawalRequests, updateIndiWithdrawalRequestStatus } from '@/app/lib/indiWithdrawalRequests';
+import { ensureFinancialServiceAccess } from '@/app/lib/complianceGovernance';
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ message }, { status });
@@ -61,6 +62,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (action === 'request-withdrawal') {
     const amount = asNumber(body.amount);
     if (amount <= 0) return fail('Withdrawal amount must be greater than zero.');
+    const identity = await resolveRequestIdentity(req).catch(() => null);
+    try {
+      await ensureFinancialServiceAccess({
+        actorId,
+        walletAddress: identity?.walletAddress || '',
+        service: 'instant-payout'
+      });
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : 'Compliance review is required before using financial services.', 403);
+    }
     const balance = await getIndiBalanceSnapshot({ actorId, profileSlug });
     if (balance.availableBalance < amount) {
       return fail('Not enough INDI available for this withdrawal request.', 400);

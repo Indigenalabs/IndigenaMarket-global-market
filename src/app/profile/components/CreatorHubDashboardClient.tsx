@@ -110,6 +110,10 @@ import {
   getCommunityStorefrontState,
   isCommunityStorefrontAccount
 } from '@/app/lib/communityStorefrontState';
+import {
+  fetchCommunityStorefrontAnalytics,
+  type CommunityStorefrontAnalyticsSnapshot
+} from '@/app/lib/communityMarketplaceApi';
 import { fetchLaunchpadCampaignsForAccount, updateLaunchpadCampaignStatusApi } from '@/app/lib/launchpadApi';
 import type { LaunchpadCampaign, LaunchpadCampaignStatus } from '@/app/lib/launchpad';
 import {
@@ -399,6 +403,8 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
   const [platformAccounts, setPlatformAccounts] = useState<PlatformAccountRecord[]>([]);
   const [activeAccountSlug, setActiveAccountSlug] = useState(slug);
   const [accountFeedback, setAccountFeedback] = useState('');
+  const [communityAnalytics, setCommunityAnalytics] = useState<CommunityStorefrontAnalyticsSnapshot | null>(null);
+  const [communityAnalyticsLoading, setCommunityAnalyticsLoading] = useState(false);
   const [launchpadCampaigns, setLaunchpadCampaigns] = useState<LaunchpadCampaign[]>([]);
   const [launchpadFeedback, setLaunchpadFeedback] = useState('');
   const [isUpdatingLaunchpadCampaignSlug, setIsUpdatingLaunchpadCampaignSlug] = useState('');
@@ -713,6 +719,36 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         : null,
     [activePlatformAccount]
   );
+  useEffect(() => {
+    if (!activePlatformAccount || !isCommunityStorefrontAccount(activePlatformAccount)) {
+      setCommunityAnalytics(null);
+      setCommunityAnalyticsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCommunityAnalyticsLoading(true);
+    fetchCommunityStorefrontAnalytics(activePlatformAccount.slug)
+      .then((data) => {
+        if (!cancelled) {
+          setCommunityAnalytics(data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCommunityAnalytics(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCommunityAnalyticsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePlatformAccount]);
+  const topCommunityRoutes = useMemo(() => communityAnalytics?.rollups.slice(0, 3) ?? [], [communityAnalytics]);
+  const topCommunityPillars = useMemo(() => communityAnalytics?.pillarPerformance.slice(0, 3) ?? [], [communityAnalytics]);
   const withStorefrontContext = (href: string) => {
     if (!communityPublishingAccountSlug) {
       return withSimpleMode(href);
@@ -1882,6 +1918,72 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
 
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {activePlatformAccount && isCommunityStorefrontAccount(activePlatformAccount) ? (
+            <section className="rounded-[30px] border border-[#d4af37]/18 bg-[linear-gradient(135deg,rgba(212,175,55,0.08),rgba(17,17,17,0.92))] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Community storefront performance</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-white">{activePlatformAccount.displayName}</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-7 text-gray-300">
+                    Represented-community analytics stay inside Creator Hub so we can judge listing depth, treasury routing intent, and actual treasury capture without jumping out to the public storefront.
+                  </p>
+                </div>
+                <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs text-white/72">
+                  {communityAnalyticsLoading ? 'Refreshing storefront analytics...' : activeCommunityStorefrontState?.detail || 'Community storefront analytics'}
+                </div>
+              </div>
+              {communityAnalytics ? (
+                <>
+                  <div className="mt-5 grid gap-4 md:grid-cols-4">
+                    <StatCard label="Live offers" value={communityAnalytics.summary.liveOfferCount.toString()} />
+                    <StatCard label="Projected gross" value={`$${communityAnalytics.summary.projectedGrossValue.toLocaleString()}`} />
+                    <StatCard label="Realized flow" value={`$${communityAnalytics.summary.realizedGrossValue.toLocaleString()}`} />
+                    <StatCard label="Treasury capture" value={`$${communityAnalytics.summary.realizedTreasuryValue.toLocaleString()}`} />
+                  </div>
+                  <div className="mt-5 grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
+                    <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Top split routes</p>
+                      <div className="mt-4 space-y-3">
+                        {topCommunityRoutes.map((route) => (
+                          <div key={route.routingKey} className="rounded-[20px] border border-white/10 bg-[#111111] p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-medium text-white">{route.label}</p>
+                                <p className="mt-1 text-xs text-gray-400">{route.liveOfferCount} live offers | {route.realizedOrderCount} realized orders</p>
+                              </div>
+                              <span className="text-sm font-semibold text-[#d4af37]">{route.sellThroughRate}% sell-through</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Best-performing pillars</p>
+                      <div className="mt-4 space-y-3">
+                        {topCommunityPillars.map((pillar) => (
+                          <div key={pillar.pillarLabel} className="rounded-[20px] border border-white/10 bg-[#111111] p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-medium text-white">{pillar.pillarLabel}</p>
+                                <p className="mt-1 text-xs text-gray-400">{pillar.liveOfferCount} live offers | ${pillar.projectedGrossValue.toLocaleString()} projected</p>
+                              </div>
+                              <span className="text-sm font-semibold text-[#d4af37]">{pillar.treasuryCaptureRate}% capture</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 text-sm text-gray-300">
+                  {communityAnalyticsLoading
+                    ? 'Loading community storefront analytics.'
+                    : 'This storefront does not have treasury performance data yet. Publish community-owned listings and let routing activity build the analytics surface.'}
+                </div>
+              )}
+            </section>
+          ) : null}
           {workspaceMode === 'simple' && (
             <section className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
               <Panel title="Start here" eyebrow="Recommended flow" icon={Sparkles}>
@@ -3649,6 +3751,40 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
               <StatCard key={metric.id} label={metric.label} value={metric.value} />
             ))}
           </div>
+          {communityAnalytics ? (
+            <Panel title="Community storefront analytics" eyebrow="Treasury-aware performance" icon={Store}>
+              <div className="grid gap-4 md:grid-cols-4">
+                <StatCard label="Live offers" value={communityAnalytics.summary.liveOfferCount.toString()} />
+                <StatCard label="Projected gross" value={`$${communityAnalytics.summary.projectedGrossValue.toLocaleString()}`} />
+                <StatCard label="Realized flow" value={`$${communityAnalytics.summary.realizedGrossValue.toLocaleString()}`} />
+                <StatCard label="Treasury share" value={`$${communityAnalytics.summary.realizedTreasuryValue.toLocaleString()}`} />
+              </div>
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                <div className="space-y-3">
+                  {communityAnalytics.rollups.slice(0, 4).map((route) => (
+                    <div key={route.routingKey} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-sm text-white">{route.label}</span>
+                        <span className="text-sm font-semibold text-[#d4af37]">{route.sellThroughRate}%</span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-400">${route.realizedTreasuryValue.toLocaleString()} treasury share | {route.realizedOrderCount} orders</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  {communityAnalytics.pillarPerformance.slice(0, 4).map((pillar) => (
+                    <div key={pillar.pillarLabel} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-sm text-white">{pillar.pillarLabel}</span>
+                        <span className="text-sm font-semibold text-[#d4af37]">{pillar.treasuryCaptureRate}%</span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-400">{pillar.liveOfferCount} offers | ${pillar.realizedGrossValue.toLocaleString()} realized flow</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+          ) : null}
           <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
           <Panel title="Sales by Pillar" eyebrow="Revenue mix" icon={Sparkles}>
             <div className="space-y-3">

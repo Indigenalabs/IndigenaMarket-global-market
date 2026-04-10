@@ -31,6 +31,8 @@ import {
   fetchMaterialsToolsServices,
   fetchMaterialsToolsSuppliers
 } from '@/app/lib/materialsToolsApi';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
+import { fetchCommunityMarketplaceOffers, type CommunityMarketplaceOffer } from '@/app/lib/communityMarketplaceApi';
 
 const categoryOptions = Object.entries(categoryMeta).map(([id, meta]) => ({ id: id as MaterialsToolsCategoryId, label: meta.label }));
 
@@ -49,6 +51,7 @@ export default function MaterialsToolsMarketplace() {
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState<'api' | 'mock'>('mock');
   const [error, setError] = useState<string | null>(null);
+  const [communityOffers, setCommunityOffers] = useState<CommunityMarketplaceOffer[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -95,6 +98,20 @@ export default function MaterialsToolsMarketplace() {
       mounted = false;
     };
   }, [mode, query, category, verifiedOnly]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCommunityMarketplaceOffers({ pillar: 'materials-tools', search: query || undefined })
+      .then((offers) => {
+        if (!cancelled) setCommunityOffers(offers.slice(0, 3));
+      })
+      .catch(() => {
+        if (!cancelled) setCommunityOffers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
 
   return (
     <div className="space-y-6 p-6">
@@ -172,14 +189,16 @@ export default function MaterialsToolsMarketplace() {
       {mode === 'materials' ? (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {materialResults.slice(0, 3).map((item) => <MaterialCard key={item.id} item={item} />)}
+          {communityOffers.slice(0, 1).map((offer) => <CommunityMarketplaceCard key={`materials-${offer.id}`} offer={offer} mode="mixed" className="h-full" />)}
           {materialResults.slice(3).map((item) => <MaterialCard key={item.id} item={item} />)}
+          {communityOffers.slice(1, 2).map((offer) => <CommunityMarketplaceCard key={`materials-tail-${offer.id}`} offer={offer} mode="mixed" className="h-full" />)}
         </section>
       ) : null}
 
       {mode === 'suppliers' ? <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{supplierResults.map((item) => <SupplierCard key={item.id} item={item} />)}</section> : null}
       {mode === 'rentals' ? <section className="grid gap-4 md:grid-cols-3">{rentalResults.map((item) => <RentalCard key={item.id} item={item} />)}</section> : null}
-      {mode === 'services' ? <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{serviceResults.map((item) => <ServiceCard key={item.id} item={item} />)}</section> : null}
-      {mode === 'co-op' ? <section className="grid gap-4 md:grid-cols-3">{coopResults.map((item) => <CoopOrderCard key={item.id} item={item} />)}</section> : null}
+      {mode === 'services' ? <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{serviceResults.map((item) => <ServiceCard key={item.id} item={item} />)}{communityOffers.slice(0, 2).map((offer) => <CommunityMarketplaceCard key={`services-${offer.id}`} offer={offer} mode="mixed" className="h-full" />)}</section> : null}
+      {mode === 'co-op' ? <section className="grid gap-4 md:grid-cols-3">{coopResults.map((item) => <CoopOrderCard key={item.id} item={item} />)}{communityOffers.slice(0, 1).map((offer) => <CommunityMarketplaceCard key={`coop-${offer.id}`} offer={offer} mode="mixed" className="h-full" />)}</section> : null}
 
     </div>
   );
