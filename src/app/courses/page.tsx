@@ -1,6 +1,7 @@
 'use client';
 
 import CoursesMarketplace from '@/app/components/marketplace/CoursesMarketplace';
+import CommunityMarketplaceExplorer from '@/app/components/community/CommunityMarketplaceExplorer';
 import Link from 'next/link';
 import { Plus, GraduationCap } from 'lucide-react';
 
@@ -48,6 +49,12 @@ export default function CoursesPage() {
 
         {/* Courses Marketplace Content */}
         <main className="flex-1 overflow-y-auto p-6">
+          <CommunityMarketplaceExplorer
+            pillar="courses"
+            title="Community-owned learning offers"
+            subtitle="Community storefront courses and education bundles stay discoverable inside the public learning marketplace, with treasury routing visible through split-rule facets."
+            emptyLabel="No community-owned learning offers match the current marketplace facets."
+          />
           <CoursesMarketplace />
         </main>
     </>

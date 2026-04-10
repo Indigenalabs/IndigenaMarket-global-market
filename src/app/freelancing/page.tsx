@@ -11,6 +11,7 @@ import {
 import Sidebar from '../components/Sidebar';
 import ServiceDetailModal from '../components/marketplace/freelancing/ServiceDetailModal';
 import SponsoredServiceCard from '../components/marketplace/freelancing/SponsoredServiceCard';
+import CommunityMarketplaceExplorer from '@/app/components/community/CommunityMarketplaceExplorer';
 
 // Category definitions - 16 Indigenous Service Categories
 const categories = [
@@ -1354,6 +1355,13 @@ export default function FreelancingViewAll() {
               </button>
             </div>
           </div>
+
+          <CommunityMarketplaceExplorer
+            pillar="freelancing"
+            title="Community-owned service offers"
+            subtitle="Community storefront consulting, creative, language, and advisory offers now surface inside the public freelancing marketplace with treasury-routing facets attached."
+            emptyLabel="No community-owned service offers match the current marketplace facets."
+          />
 
           {/* Category Tabs with Scroll */}
           <div className="relative mb-6">

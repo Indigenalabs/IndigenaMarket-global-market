@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { listPlatformAccounts, getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
 import { getCommunityEntityPresentation } from '@/app/lib/communityEntityPresentation';
+import CommunityMarketplaceExplorer from '@/app/components/community/CommunityMarketplaceExplorer';
 
 export const metadata = {
   title: 'Nations & Communities | Indigena Global Market'
@@ -56,6 +57,12 @@ export default async function CommunitiesPage() {
             </div>
           ))}
         </div>
+
+        <CommunityMarketplaceExplorer
+          title="Cross-pillar community storefront listings"
+          subtitle="Search across the community-owned marketplace by title, trust, and treasury routing before drilling into a specific nation storefront."
+          emptyLabel="No community-owned listings match the current marketplace facets."
+        />
 
         <section>
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
