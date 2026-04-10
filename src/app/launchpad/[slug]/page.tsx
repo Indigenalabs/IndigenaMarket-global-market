@@ -4,6 +4,7 @@ import { Clock3, Users } from 'lucide-react';
 import { getLaunchpadCategoryLabel } from '@/app/lib/launchpad';
 import { getLaunchpadCampaignRecordBySlug } from '@/app/lib/launchpadCampaignStore';
 import { listLaunchpadReceiptsByCampaignSlug } from '@/app/lib/launchpadSupport';
+import { summarizeHybridFunding } from '@/app/lib/phase8HybridFunding';
 import LaunchpadCheckoutPanel from '@/app/launchpad/[slug]/LaunchpadCheckoutPanel';
 import {
   SurfaceHero,
@@ -65,6 +66,7 @@ export default async function LaunchpadCampaignDetail({ params }: { params: Prom
   const liveRaised = campaign.raisedAmount + receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
   const liveSponsors = campaign.sponsorCount + receipts.length;
   const statusCopy = getStatusCopy(campaign.status);
+  const fundingSummary = await summarizeHybridFunding({ source: 'launchpad', campaignSlug: slug });
 
   return (
     <SurfacePage tone="program">
@@ -148,6 +150,43 @@ export default async function LaunchpadCampaignDetail({ params }: { params: Prom
             <p className="mt-4 text-sm leading-7 text-white/74">
               {campaign.summary} This page shows what is at stake, who is carrying the work, and what backing now changes for the beneficiary.
             </p>
+          </div>
+
+          <div className="rounded-[30px] border border-white/10 bg-black/20 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.26)] backdrop-blur-sm">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-[#d4af37]">Phase 8 funding operations</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">How this campaign is routed and measured</h2>
+            <div className="mt-5 grid gap-4 sm:grid-cols-4">
+              <div className="rounded-[18px] border border-white/10 bg-black/18 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/50">Receipts</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{fundingSummary.totalReceipts}</p>
+              </div>
+              <div className="rounded-[18px] border border-white/10 bg-black/18 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/50">Gross support</p>
+                <p className="mt-2 text-2xl font-semibold text-white">${fundingSummary.totalGrossAmount.toLocaleString()}</p>
+              </div>
+              <div className="rounded-[18px] border border-white/10 bg-black/18 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/50">Visible fees</p>
+                <p className="mt-2 text-2xl font-semibold text-white">${(fundingSummary.totalPlatformFees + fundingSummary.totalProcessorFees).toLocaleString()}</p>
+              </div>
+              <div className="rounded-[18px] border border-white/10 bg-black/18 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/50">Net onward</p>
+                <p className="mt-2 text-2xl font-semibold text-[#d4af37]">${fundingSummary.totalNetAmount.toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="mt-5 space-y-3">
+              {fundingSummary.byLane.filter((entry) => entry.count > 0).map((entry) => (
+                <div key={entry.key} className="flex items-center justify-between rounded-[18px] border border-white/10 bg-black/18 p-4 text-sm">
+                  <div>
+                    <p className="font-medium text-white">{entry.label}</p>
+                    <p className="mt-1 text-white/60">{entry.count} recorded backings</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-white">${entry.grossAmount.toLocaleString()}</p>
+                    <p className="mt-1 text-xs text-[#d4af37]">${entry.netAmount.toLocaleString()} net routed</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <SurfaceSectionHeading eyebrow="Use of funds" title="Where support lands" description="Each contribution is tied to a clear spending path." />

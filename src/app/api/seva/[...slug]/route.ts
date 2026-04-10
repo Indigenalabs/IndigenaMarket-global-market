@@ -2,6 +2,17 @@
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestIdentity';
 import { requirePlatformAdmin } from '@/app/lib/platformAdminAuth';
+import {
+  calculateSevaFundingQuote,
+  createHybridFundingReceipt,
+  getHybridFundingLaneLabel,
+  type HybridFundingLane
+} from '@/app/lib/phase8HybridFunding';
+import {
+  createSevaDonorTool,
+  createSevaImpactReport,
+  createSevaProjectAdmin
+} from '@/app/lib/sevaImpactServices';
 
 type R = Record<string, unknown>;
 
@@ -122,6 +133,51 @@ function buildPublishedProject(request: LocalSevaRequest, publishedBy: string, f
   };
 }
 
+function mapFundIdToLane(fundId: string): HybridFundingLane {
+  if (fundId === 'rapid-response') return 'rapid-response';
+  if (fundId === 'land-back') return 'land-back';
+  return 'innovation';
+}
+
+function inferFundIdFromProject(row: R) {
+  const metadata = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as R;
+  const governance = (metadata.governance && typeof metadata.governance === 'object' ? metadata.governance : {}) as R;
+  const fundId = String(governance.fundId || '').trim();
+  return fundId || 'innovation';
+}
+
+async function seedApprovedProjectOperations(input: {
+  requestId: string;
+  projectId: string;
+  requesterActorId: string;
+  title: string;
+  targetAmount: number;
+}) {
+  await Promise.all([
+    createSevaProjectAdmin({
+      requestId: input.requestId,
+      projectId: input.projectId,
+      fundsManaged: input.targetAmount > 0 ? input.targetAmount : 25000,
+      donorCount: 0
+    }),
+    createSevaDonorTool({
+      actorId: input.requesterActorId,
+      projectId: input.projectId,
+      toolType: 'recurring-donation'
+    }),
+    createSevaDonorTool({
+      actorId: input.requesterActorId,
+      projectId: input.projectId,
+      toolType: 'impact-digest'
+    }),
+    createSevaImpactReport({
+      clientName: `${input.title} Impact Digest`,
+      projectId: input.projectId,
+      contractAmount: 3500
+    })
+  ]);
+}
+
 async function listRequestsForRequester(actorId: string, wallet: string) {
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();
@@ -232,6 +288,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     const walletAddress = normalizeWallet(body.walletAddress || resolveRequestWallet(req));
     if (!causeId || amount <= 0) return fail('causeId and positive amount are required');
     if (!walletAddress) return fail('Authenticated account session required', 401);
+    let projectRow: R | null = null;
     if (isSupabaseServerConfigured()) {
       const supabase = createSupabaseServerClient();
       await supabase.from('seva_donations').insert({
@@ -244,11 +301,55 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       });
       const project = await supabase.from('seva_projects').select('*').eq('id', causeId).maybeSingle();
       if (project.data) {
+        projectRow = project.data as unknown as R;
         const raised = Number((project.data as any).raised_amount || 0) + amount;
         await supabase.from('seva_projects').update({ raised_amount: raised, updated_at: new Date().toISOString() }).eq('id', causeId);
       }
+    } else {
+      const project = localPublishedProjects.get(causeId) || null;
+      if (project) {
+        projectRow = project;
+        const current = Number(project.raised_amount || 0);
+        localPublishedProjects.set(causeId, {
+          ...project,
+          raised_amount: current + amount,
+          updated_at: new Date().toISOString()
+        });
+      }
     }
-    return NextResponse.json({ status: true, message: 'Donation recorded' });
+    const fundId = mapFundIdToLane(projectRow ? inferFundIdFromProject(projectRow) : 'innovation');
+    const quote = calculateSevaFundingQuote(amount);
+    const title = String(projectRow?.title || 'Seva project');
+    const hybridReceipt = await createHybridFundingReceipt({
+      source: 'seva',
+      lane: fundId,
+      nativeReceiptId: `sevadon-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      amountGross: quote.gross,
+      platformFee: 0,
+      processorFee: quote.processorFee,
+      serviceFee: quote.serviceFee,
+      beneficiaryNet: quote.beneficiaryNet,
+      supporterName: String(body.supporterName || walletAddress),
+      supporterEmail: String(body.supporterEmail || `${walletAddress}@indigena.local`),
+      beneficiaryLabel: title,
+      linkedAccountSlug: String(((projectRow?.metadata as R | undefined)?.linkedAccountSlug) || ''),
+      sevaProjectId: causeId,
+      sevaProjectTitle: title,
+      sacredFundId: fundId,
+      visibility: 'public',
+      note: String(body.message || ''),
+      sourceReference: walletAddress,
+      metadata: {
+        walletAddress,
+        sacredFundLabel: getHybridFundingLaneLabel(fundId)
+      }
+    });
+    return NextResponse.json({
+      status: true,
+      message: 'Donation recorded',
+      receiptId: hybridReceipt.id,
+      redirectUrl: `/seva/receipts/${hybridReceipt.id}`
+    });
   }
 
   if (a === 'request-project') {
@@ -334,6 +435,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         publishedProjectId = String(project.id);
         const { error: projectError } = await supabase.from('seva_projects').insert(project);
         if (projectError) return fail(projectError.message, 500);
+        await seedApprovedProjectOperations({
+          requestId,
+          projectId: publishedProjectId,
+          requesterActorId: request.requester_actor_id,
+          title: request.title,
+          targetAmount: Number(request.target_amount || 0)
+        });
       }
 
       const { error: updateError } = await supabase
@@ -359,6 +467,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       const project = buildPublishedProject(existing, reviewer, fundId);
       publishedProjectId = String(project.id);
       localPublishedProjects.set(publishedProjectId, project);
+      await seedApprovedProjectOperations({
+        requestId,
+        projectId: publishedProjectId,
+        requesterActorId: existing.requester_actor_id,
+        title: existing.title,
+        targetAmount: Number(existing.target_amount || 0)
+      });
     }
     localRequestStore.set(requestId, {
       ...existing,

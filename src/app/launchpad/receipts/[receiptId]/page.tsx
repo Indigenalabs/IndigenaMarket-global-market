@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getLaunchpadCampaignBySlug } from '@/app/lib/launchpad';
+import { getLaunchpadCampaignRecordBySlug } from '@/app/lib/launchpadCampaignStore';
 import { getLaunchpadReceiptById } from '@/app/lib/launchpadSupport';
+import { getHybridFundingReceiptByNativeReceipt } from '@/app/lib/phase8HybridFunding';
 
 export async function generateMetadata({ params }: { params: Promise<{ receiptId: string }> }) {
   const { receiptId } = await params;
@@ -14,8 +15,9 @@ export default async function LaunchpadReceiptPage({ params }: { params: Promise
   const { receiptId } = await params;
   const receipt = await getLaunchpadReceiptById(receiptId);
   if (!receipt) notFound();
-  const campaign = getLaunchpadCampaignBySlug(receipt.campaignSlug);
+  const campaign = await getLaunchpadCampaignRecordBySlug(receipt.campaignSlug);
   if (!campaign) notFound();
+  const fundingReceipt = await getHybridFundingReceiptByNativeReceipt('launchpad', receipt.id);
 
   return (
     <main className="min-h-screen bg-[#090909] px-4 py-8 text-white md:px-8">
@@ -57,8 +59,40 @@ export default async function LaunchpadReceiptPage({ params }: { params: Promise
               </div>
               <div className="rounded-[24px] border border-white/10 bg-black/24 p-5 text-sm leading-7 text-white/70">
                 <p>Your receipt has been recorded for {receipt.beneficiaryName}. {receipt.cadence === 'monthly' ? 'This support is marked as a recurring backing commitment in the Launchpad ledger.' : 'This support is marked as a one-time contribution in the Launchpad ledger.'}</p>
-                {receipt.note ? <p className="mt-3 text-white/86">Note: “{receipt.note}”</p> : null}
+                {receipt.note ? <p className="mt-3 text-white/86">Note: "{receipt.note}"</p> : null}
               </div>
+              {fundingReceipt ? (
+                <div className="rounded-[24px] border border-[#d4af37]/20 bg-[linear-gradient(180deg,rgba(212,175,55,0.12),rgba(0,0,0,0.18))] p-5">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-[#d4af37]">Phase 8 funding route</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[18px] border border-white/10 bg-black/24 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-white/50">Funding lane</p>
+                      <p className="mt-2 text-base font-semibold text-white">{fundingReceipt.laneLabel}</p>
+                      <p className="mt-2 text-sm leading-6 text-white/65">
+                        {fundingReceipt.linkedAccountSlug
+                          ? `Attached to ${fundingReceipt.linkedAccountSlug} so the storefront and ops ledger see the same result.`
+                          : 'Recorded as direct-beneficiary funding for this campaign.'}
+                      </p>
+                    </div>
+                    <div className="rounded-[18px] border border-white/10 bg-black/24 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-white/50">Recorded receipt</p>
+                      <p className="mt-2 text-base font-semibold text-white">{fundingReceipt.id}</p>
+                      <p className="mt-2 text-sm leading-6 text-white/65">This backing now appears in the shared hybrid funding reporting layer.</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {fundingReceipt ? (
+                <div className="rounded-[24px] border border-white/10 bg-black/24 p-5">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-[#d4af37]">Funding breakdown</p>
+                  <div className="mt-3 space-y-3 text-sm">
+                    <div className="flex items-center justify-between text-white/72"><span>Gross support</span><span>${fundingReceipt.amountGross.toFixed(2)}</span></div>
+                    <div className="flex items-center justify-between text-white/72"><span>Launchpad fee</span><span>${fundingReceipt.platformFee.toFixed(2)}</span></div>
+                    <div className="flex items-center justify-between text-white/72"><span>Processor fee</span><span>${fundingReceipt.processorFee.toFixed(2)}</span></div>
+                    <div className="flex items-center justify-between border-t border-white/10 pt-3 font-semibold text-white"><span>Net routed onward</span><span>${fundingReceipt.beneficiaryNet.toFixed(2)}</span></div>
+                  </div>
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-3">
                 <Link href={`/launchpad/${receipt.campaignSlug}`} className="rounded-full bg-[#d4af37] px-5 py-3 text-sm font-semibold text-black hover:bg-[#f4d370]">Back to campaign</Link>
                 <Link href="/launchpad" className="rounded-full border border-white/10 px-5 py-3 text-sm text-white hover:border-[#d4af37]/35">Browse Launchpad</Link>

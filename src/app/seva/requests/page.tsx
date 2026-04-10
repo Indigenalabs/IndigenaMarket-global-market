@@ -115,10 +115,15 @@ export default function SevaRequestsPage() {
                             {request.reviewNotes || 'No review notes yet. Platform reviewers will add guidance here if more information is needed.'}
                           </p>
                           {request.publishedProjectId && (
-                            <Link href="/seva" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-[#d4af37] hover:text-[#f4d370]">
-                              View live Seva project
-                              <ArrowRight size={14} />
-                            </Link>
+                            <div className="mt-4 space-y-3">
+                              <div className="rounded-[18px] border border-[#d4af37]/20 bg-[#d4af37]/10 p-3 text-sm text-[#f3deb1]">
+                                Published into the Sacred Fund system. Donor tools and project admin tracking are now active for this request.
+                              </div>
+                              <Link href="/seva" className="inline-flex items-center gap-2 text-sm font-medium text-[#d4af37] hover:text-[#f4d370]">
+                                View live Seva project
+                                <ArrowRight size={14} />
+                              </Link>
+                            </div>
                           )}
                         </div>
                       </div>

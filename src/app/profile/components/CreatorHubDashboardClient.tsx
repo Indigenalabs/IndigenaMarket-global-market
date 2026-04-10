@@ -114,6 +114,8 @@ import {
   fetchCommunityStorefrontAnalytics,
   type CommunityStorefrontAnalyticsSnapshot
 } from '@/app/lib/communityMarketplaceApi';
+import { fetchHybridFundingAccount } from '@/app/lib/hybridFundingApi';
+import type { HybridFundingReceiptRecord, HybridFundingSummary } from '@/app/lib/phase8HybridFunding';
 import { fetchLaunchpadCampaignsForAccount, updateLaunchpadCampaignStatusApi } from '@/app/lib/launchpadApi';
 import type { LaunchpadCampaign, LaunchpadCampaignStatus } from '@/app/lib/launchpad';
 import {
@@ -406,6 +408,8 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
   const [communityAnalytics, setCommunityAnalytics] = useState<CommunityStorefrontAnalyticsSnapshot | null>(null);
   const [communityAnalyticsLoading, setCommunityAnalyticsLoading] = useState(false);
   const [launchpadCampaigns, setLaunchpadCampaigns] = useState<LaunchpadCampaign[]>([]);
+  const [hybridFundingSummary, setHybridFundingSummary] = useState<HybridFundingSummary | null>(null);
+  const [hybridFundingReceipts, setHybridFundingReceipts] = useState<HybridFundingReceiptRecord[]>([]);
   const [launchpadFeedback, setLaunchpadFeedback] = useState('');
   const [isUpdatingLaunchpadCampaignSlug, setIsUpdatingLaunchpadCampaignSlug] = useState('');
 
@@ -520,6 +524,8 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
   useEffect(() => {
     if (!activeAccountSlug) {
       setLaunchpadCampaigns([]);
+      setHybridFundingSummary(null);
+      setHybridFundingReceipts([]);
       return;
     }
     let cancelled = false;
@@ -534,6 +540,25 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         if (!cancelled) {
           setLaunchpadFeedback(error instanceof Error ? error.message : 'Unable to load Launchpad campaigns.');
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountSlug]);
+
+  useEffect(() => {
+    if (!activeAccountSlug) return;
+    let cancelled = false;
+    fetchHybridFundingAccount(activeAccountSlug)
+      .then((data) => {
+        if (cancelled) return;
+        setHybridFundingSummary(data.summary);
+        setHybridFundingReceipts(data.receipts);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHybridFundingSummary(null);
+        setHybridFundingReceipts([]);
       });
     return () => {
       cancelled = true;
@@ -2303,6 +2328,55 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                   </div>
                 ) : null}
               </div>
+            </Panel>
+
+            <Panel title="Hybrid Funding Visibility" eyebrow="Phase 8" icon={Heart}>
+              {hybridFundingSummary ? (
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <StatCard label="Receipts" value={String(hybridFundingSummary.totalReceipts)} />
+                    <StatCard label="Gross" value={`$${Math.round(hybridFundingSummary.totalGrossAmount).toLocaleString()}`} />
+                    <StatCard label="Service layer" value={`$${Math.round(hybridFundingSummary.totalServiceFees).toLocaleString()}`} />
+                    <StatCard label="Net routed" value={`$${Math.round(hybridFundingSummary.totalNetAmount).toLocaleString()}`} />
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {hybridFundingSummary.bySource.filter((entry) => entry.count > 0).map((entry) => (
+                        <div key={entry.key} className="rounded-[18px] border border-white/10 bg-black/20 p-3">
+                          <p className="text-sm font-medium text-white">{entry.label}</p>
+                          <p className="mt-1 text-xs text-gray-400">{entry.count} receipts</p>
+                          <p className="mt-2 text-sm text-[#d4af37]">${Math.round(entry.netAmount).toLocaleString()} net</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {hybridFundingReceipts.slice(0, 4).map((entry) => (
+                      <div key={entry.id} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-white">{entry.campaignTitle || entry.sevaProjectTitle || entry.beneficiaryLabel}</p>
+                            <p className="mt-1 text-xs text-gray-400">{entry.source === 'launchpad' ? entry.laneLabel : `Seva | ${entry.laneLabel}`}</p>
+                          </div>
+                          <span className="rounded-full border border-[#d4af37]/20 px-3 py-1 text-xs text-[#f3deb1]">${Math.round(entry.amountGross).toLocaleString()}</span>
+                        </div>
+                        <p className="mt-3 text-sm text-gray-300">{entry.supporterName} supported this route and ${Math.round(entry.beneficiaryNet).toLocaleString()} was recorded as net onward value.</p>
+                      </div>
+                    ))}
+                    {hybridFundingReceipts.length === 0 ? (
+                      <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                        <p className="text-sm font-medium text-white">No hybrid funding receipts for this storefront yet.</p>
+                        <p className="mt-2 text-sm leading-6 text-gray-400">Launchpad and Seva receipts will show up here as soon as this storefront starts raising or receiving support.</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <p className="text-sm font-medium text-white">Hybrid funding visibility is empty for this storefront right now.</p>
+                  <p className="mt-2 text-sm leading-6 text-gray-400">Once Launchpad or Seva receipts are recorded for the active storefront, Creator Hub will summarize them here.</p>
+                </div>
+              )}
             </Panel>
           </section>
         </div>

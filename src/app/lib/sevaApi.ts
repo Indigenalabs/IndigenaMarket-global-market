@@ -110,7 +110,7 @@ export async function fetchSevaPlatformStats(): Promise<SevaPlatformStats> {
 }
 
 export async function donateSeva(walletAddress: string, causeId: string, amount: number, message = '') {
-  return postJson<{ status: boolean; message?: string }>(`${API_BASE}/seva/donate`, {
+  return postJson<{ status: boolean; message?: string; receiptId?: string; redirectUrl?: string }>(`${API_BASE}/seva/donate`, {
     walletAddress,
     causeId,
     amount,
