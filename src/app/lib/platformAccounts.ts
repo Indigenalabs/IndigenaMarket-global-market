@@ -120,6 +120,25 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function defaultPermissionsForRole(role: PlatformMemberRole) {
+  switch (role) {
+    case 'owner':
+      return ['publish', 'edit_store', 'manage_members', 'manage_splits', 'view_payouts', 'submit_verification'];
+    case 'representative':
+      return ['publish', 'edit_store', 'manage_members', 'submit_verification'];
+    case 'editor':
+      return ['publish', 'edit_store'];
+    case 'treasurer':
+      return ['view_treasury', 'manage_splits', 'view_payouts'];
+    case 'elder':
+      return ['endorse_sacred_content', 'approve_protocols'];
+    case 'steward':
+      return ['publish', 'edit_store', 'respond_requests'];
+    default:
+      return [];
+  }
+}
+
 function normalizeAssetPath(value: string) {
   return LEGACY_ASSET_MAP[value] || value;
 }
@@ -545,10 +564,25 @@ export async function listPlatformAccountDashboard(): Promise<PlatformAccountDas
   return dashboard;
 }
 
-export async function listPlatformAccounts(filter?: { accountTypes?: PlatformAccountType[] }) {
+export async function listPlatformAccounts(filter?: { accountTypes?: PlatformAccountType[]; actorId?: string }) {
   const dashboard = await listPlatformAccountDashboard();
   const allowed = filter?.accountTypes;
-  return allowed?.length ? dashboard.accounts.filter((entry) => allowed.includes(entry.accountType)) : dashboard.accounts;
+  const actorId = String(filter?.actorId || '').trim().toLowerCase();
+  const memberAccountIds = actorId
+    ? new Set(
+        dashboard.members
+          .filter((entry) => entry.actorId.trim().toLowerCase() === actorId)
+          .map((entry) => entry.accountId)
+      )
+    : null;
+
+  const visibleAccounts = dashboard.accounts.filter((entry) => {
+    if (allowed?.length && !allowed.includes(entry.accountType)) return false;
+    if (!actorId) return true;
+    return memberAccountIds?.has(entry.id) || entry.representativeActorIds.some((candidate) => candidate.trim().toLowerCase() === actorId);
+  });
+
+  return visibleAccounts;
 }
 
 export async function getPlatformAccountBySlug(slug: string) {
@@ -863,4 +897,73 @@ export async function upsertRevenueSplitRule(input: {
   if (idx >= 0) runtime.revenueSplitRules[idx] = record; else runtime.revenueSplitRules.unshift(record);
   await writeRuntime(runtime);
   return record;
+}
+
+export async function upsertPlatformAccountMember(input: {
+  accountId: string;
+  actorId: string;
+  displayName: string;
+  role: PlatformMemberRole;
+  permissions?: string[];
+}) {
+  const dashboard = await listPlatformAccountDashboard();
+  const current = dashboard.members.find(
+    (entry) => entry.accountId === input.accountId && entry.actorId.trim().toLowerCase() === input.actorId.trim().toLowerCase()
+  );
+  const record: PlatformAccountMemberRecord = {
+    id: current?.id || id('acctmem'),
+    accountId: input.accountId,
+    actorId: input.actorId.trim().toLowerCase(),
+    displayName: input.displayName.trim() || current?.displayName || input.actorId.trim().toLowerCase(),
+    role: input.role,
+    permissions: (input.permissions?.length ? input.permissions : defaultPermissionsForRole(input.role)).map(String),
+    joinedAt: current?.joinedAt || nowIso()
+  };
+
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    await supabase.from('platform_account_members').upsert({
+      id: record.id,
+      account_id: record.accountId,
+      actor_id: record.actorId,
+      display_name: record.displayName,
+      role: record.role,
+      permissions: record.permissions,
+      joined_at: record.joinedAt
+    });
+    return record;
+  }
+
+  const runtime = await readRuntime();
+  const idx = runtime.members.findIndex((entry) => entry.accountId === record.accountId && entry.actorId === record.actorId);
+  if (idx >= 0) runtime.members[idx] = record;
+  else runtime.members.unshift(record);
+  await writeRuntime(runtime);
+  return record;
+}
+
+export async function removePlatformAccountMember(input: {
+  accountId: string;
+  memberId?: string;
+  actorId?: string;
+}) {
+  const dashboard = await listPlatformAccountDashboard();
+  const current = dashboard.members.find(
+    (entry) =>
+      entry.accountId === input.accountId &&
+      ((input.memberId && entry.id === input.memberId) ||
+        (input.actorId && entry.actorId.trim().toLowerCase() === input.actorId.trim().toLowerCase()))
+  );
+  if (!current) throw new Error('Platform account member not found.');
+
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    await supabase.from('platform_account_members').delete().eq('id', current.id);
+    return current;
+  }
+
+  const runtime = await readRuntime();
+  runtime.members = runtime.members.filter((entry) => entry.id !== current.id);
+  await writeRuntime(runtime);
+  return current;
 }

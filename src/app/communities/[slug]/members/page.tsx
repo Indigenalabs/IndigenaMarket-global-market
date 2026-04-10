@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
 import { SurfaceHero, SurfaceListStrip, SurfacePage } from '@/app/components/phase-surfaces/SurfaceSystem';
+import CommunityMembersClient from '@/app/communities/[slug]/members/CommunityMembersClient';
 
 export default async function CommunityMembersPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -22,6 +23,7 @@ export default async function CommunityMembersPage({ params }: { params: Promise
         ]}
       />
       <section className="space-y-5">
+        <CommunityMembersClient account={data.account} initialMembers={data.members} />
         {data.members.map((member) => (
           <SurfaceListStrip
             key={member.id}

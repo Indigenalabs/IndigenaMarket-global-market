@@ -7,7 +7,7 @@ export default async function CommunitySupportPage({ params }: { params: Promise
   const { slug } = await params;
   const data = await getPlatformAccountBySlug(slug);
   if (!data) notFound();
-  const presentation = getCommunityEntityPresentation(data.account, data.members, data.splitRules);
+  const presentation = await getCommunityEntityPresentation(data.account, data.members, data.splitRules);
 
   return (
     <main className="min-h-screen bg-[#090909] px-4 py-6 text-white md:px-8 md:py-8">

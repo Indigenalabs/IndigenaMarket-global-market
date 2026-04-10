@@ -251,7 +251,7 @@ export default function NationStorefrontClient({
                       Featured
                     </span>
                   </div>
-                  <p className="mt-3 text-[11px] uppercase tracking-[0.18em] text-[#f3d780]">{describeRouteHint(item.href)}</p>
+                  <p className="mt-3 text-[11px] uppercase tracking-[0.18em] text-[#f3d780]">{describeRouteHint(item.sourceHref || item.href)}</p>
                   <div className="mt-4 flex items-center justify-between text-sm">
                     <span className="text-[#d4af37]">{item.priceLabel}</span>
                     <span className="text-gray-300">{item.ctaLabel}</span>
@@ -274,7 +274,7 @@ export default function NationStorefrontClient({
                 ctaLabel={item.ctaLabel}
                 blurb={item.description}
                 metadata={[item.splitLabel]}
-                actionHint={describeRouteHint(item.href)}
+                actionHint={describeRouteHint(item.sourceHref || item.href)}
                 badges={[
                   {
                     id: 'nation-route',

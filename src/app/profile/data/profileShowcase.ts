@@ -882,7 +882,7 @@ export function updateCreatorProfileOfferingState(
 export function updateCreatorProfileOfferingsBulk(
   slug: string,
   offeringIds: string[],
-  nextState: Partial<Pick<ProfileOffering, 'status' | 'availabilityLabel' | 'availabilityTone' | 'featured'>>
+  nextState: Partial<Pick<ProfileOffering, 'status' | 'availabilityLabel' | 'availabilityTone' | 'featured' | 'metadata'>>
 ) {
   const profile = creatorProfiles.find((entry) => entry.slug === slug);
   if (!profile) return getCreatorProfileBySlug(slug);
@@ -901,7 +901,7 @@ export function updateCreatorProfileOfferingsBulk(
 export function updateCreatorProfileOfferingDetails(
   slug: string,
   offeringId: string,
-  nextOffering: Partial<Pick<ProfileOffering, 'title' | 'blurb' | 'priceLabel' | 'status' | 'coverImage' | 'ctaMode' | 'ctaPreset' | 'merchandisingRank' | 'galleryOrder' | 'launchWindowStartsAt' | 'launchWindowEndsAt' | 'availabilityLabel' | 'availabilityTone' | 'featured'>>
+  nextOffering: Partial<Pick<ProfileOffering, 'title' | 'blurb' | 'priceLabel' | 'status' | 'coverImage' | 'ctaMode' | 'ctaPreset' | 'merchandisingRank' | 'galleryOrder' | 'launchWindowStartsAt' | 'launchWindowEndsAt' | 'availabilityLabel' | 'availabilityTone' | 'featured' | 'metadata'>>
 ) {
   const profile = creatorProfiles.find((entry) => entry.slug === slug);
   if (!profile) return getCreatorProfileBySlug(slug);

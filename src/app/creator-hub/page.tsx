@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import CreatorHubDashboardClient from '@/app/profile/components/CreatorHubDashboardClient';
 import ProfileWorkspaceShell from '@/app/profile/components/ProfileWorkspaceShell';
 import { loadProfileForInitialRender } from '@/app/profile/lib/profileServer';
@@ -9,7 +10,9 @@ export default async function CreatorHubPage() {
 
   return (
     <ProfileWorkspaceShell>
-      <CreatorHubDashboardClient profile={profile} slug={profile.slug} />
+      <Suspense fallback={<div className="min-h-[50vh] rounded-[28px] border border-white/10 bg-black/20" />}>
+        <CreatorHubDashboardClient profile={profile} slug={profile.slug} />
+      </Suspense>
     </ProfileWorkspaceShell>
   );
 }

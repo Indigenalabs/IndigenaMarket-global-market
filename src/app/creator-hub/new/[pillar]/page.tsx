@@ -6,13 +6,13 @@ export default async function CreatorQuickCreatePage({
   searchParams
 }: {
   params: Promise<{ pillar: string }>;
-  searchParams: Promise<{ simple?: string }>;
+  searchParams: Promise<{ simple?: string; accountSlug?: string }>;
 }) {
   const { pillar } = await params;
-  const { simple } = await searchParams;
+  const { simple, accountSlug } = await searchParams;
   const simpleMode = simple === '1';
 
-  const content = <QuickCreateClient pillar={pillar} simpleMode={simpleMode} />;
+  const content = <QuickCreateClient pillar={pillar} simpleMode={simpleMode} accountSlug={accountSlug} />;
 
   if (simpleMode) {
     return (

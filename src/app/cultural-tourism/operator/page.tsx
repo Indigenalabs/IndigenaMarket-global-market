@@ -23,9 +23,15 @@ import { requireWalletAction } from '@/app/lib/requireWalletAction';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
+import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
+import CommunitySplitRulePicker from '@/app/components/community/CommunitySplitRulePicker';
 import CulturalTourismFrame from '../components/CulturalTourismFrame';
-import { fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
+import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
+import { extractCommunitySplitRuleId } from '@/app/lib/communityPublishing';
+import { fetchPlatformAccount } from '@/app/lib/platformAccountsApi';
+import { createProfileOffering, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
+import type { RevenueSplitRuleRecord } from '@/app/lib/platformAccounts';
 
 const kinds: ExperienceKind[] = [
   'lodging','guided-tours','workshops','performances','festivals','wellness','culinary','adventure','virtual','arts-crafts','voluntourism','transport','specialty'
@@ -64,8 +70,14 @@ function CulturalTourismOperatorPageContent() {
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
   const requestedProfileSlug = searchParams.get('slug') || '';
+  const accountSlug = searchParams.get('accountSlug') || '';
+  const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
+  const [currentMirrorOfferingId, setCurrentMirrorOfferingId] = useState(editOfferingId);
+  const [communitySplitRules, setCommunitySplitRules] = useState<RevenueSplitRuleRecord[]>([]);
+  const [selectedSplitRuleId, setSelectedSplitRuleId] = useState('');
+  const [communityLabel, setCommunityLabel] = useState('');
   const [wallet, setWallet] = useState('demo-operator-wallet');
   const [walletInput, setWalletInput] = useState('demo-operator-wallet');
   const [profile, setProfile] = useState<{ operatorName: string; verificationTier: string; activeListings: number; monthlyBookings: number; payoutPending: number } | null>(null);
@@ -122,6 +134,7 @@ function CulturalTourismOperatorPageContent() {
         const offering = data.profile.offerings.find((entry) => entry.id === editOfferingId);
         if (!offering) return;
         setMirrorOffering(offering);
+        setCurrentMirrorOfferingId(offering.id);
         setTitle(offering.title || '');
         setSummary(offering.blurb || '');
         setPriceFrom(Number(parseNumericPrice(offering.priceLabel) || 100));
@@ -132,6 +145,33 @@ function CulturalTourismOperatorPageContent() {
       cancelled = true;
     };
   }, [editOfferingId, profileSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountSlug) {
+      setCommunitySplitRules([]);
+      setSelectedSplitRuleId('');
+      setCommunityLabel('');
+      return;
+    }
+    fetchPlatformAccount(accountSlug)
+      .then((detail) => {
+        if (cancelled) return;
+        const activeRules = detail.splitRules.filter((entry) => entry.status === 'active');
+        const existingRuleId = extractCommunitySplitRuleId(mirrorOffering?.metadata);
+        setCommunitySplitRules(activeRules);
+        setCommunityLabel(detail.account.displayName);
+        setSelectedSplitRuleId((current) => current || existingRuleId || activeRules[0]?.id || '');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommunitySplitRules([]);
+        setCommunityLabel('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSlug, mirrorOffering?.metadata]);
 
   const load = async () => {
     setLoading(true);
@@ -253,25 +293,43 @@ function CulturalTourismOperatorPageContent() {
         virtual,
         sacredContent
       });
-        if (editOfferingId) {
+      const nextPayload = {
+        slug: activeProfileSlug,
+        accountSlug: accountSlug || undefined,
+        splitRuleId: selectedSplitRuleId || undefined,
+        title: title.trim(),
+        blurb: summary.trim(),
+        priceLabel: `From INDI ${Math.round(priceFrom)}`,
+        status: 'Active',
+        coverImage: listingPhotos[0]?.url || mirrorOffering?.coverImage || '',
+        ctaMode: 'book',
+        ctaPreset: 'book-now',
+        merchandisingRank: mirrorOffering?.merchandisingRank ?? 0,
+        galleryOrder: listingPhotos.map((photo) => photo.url),
+        launchWindowStartsAt: mirrorOffering?.launchWindowStartsAt || '',
+        launchWindowEndsAt: mirrorOffering?.launchWindowEndsAt || '',
+        availabilityLabel: 'Bookable',
+        availabilityTone: 'success',
+        featured: mirrorOffering?.featured ?? false
+      } as const;
+      if (currentMirrorOfferingId) {
           await updateProfileOffering({
-          slug: activeProfileSlug,
-          offeringId: editOfferingId,
-          title: title.trim(),
-          blurb: summary.trim(),
-          priceLabel: `From INDI ${Math.round(priceFrom)}`,
-          status: 'Active',
-          coverImage: listingPhotos[0]?.url || mirrorOffering?.coverImage || '',
-          ctaMode: 'book',
-          ctaPreset: 'book-now',
-          merchandisingRank: mirrorOffering?.merchandisingRank ?? 0,
-          galleryOrder: listingPhotos.map((photo) => photo.url),
-          launchWindowStartsAt: mirrorOffering?.launchWindowStartsAt || '',
-          launchWindowEndsAt: mirrorOffering?.launchWindowEndsAt || '',
-          availabilityLabel: 'Bookable',
-          availabilityTone: 'success',
-          featured: mirrorOffering?.featured ?? false
+          offeringId: currentMirrorOfferingId,
+          ...nextPayload
         });
+      } else {
+        const created = await createProfileOffering({
+          ...nextPayload,
+          pillar: 'cultural-tourism',
+          pillarLabel: 'Cultural Tourism',
+          icon: '🧭',
+          offeringType: KIND_LABELS[kind].label,
+          image: listingPhotos[0]?.url || '',
+          href: appendAccountSlugToHref('/cultural-tourism', accountSlug || undefined),
+          metadata: ['Created in Cultural Tourism operator studio']
+        });
+        setCurrentMirrorOfferingId(created.offeringId);
+        setMirrorOffering(created.offering as ProfileOffering);
       }
       await trackTourismEvent({ event: 'tourism_operator_listing_created', kind, metadata: { wallet } });
       setMessage('Listing created and queued for verification review.');
@@ -395,8 +453,20 @@ function CulturalTourismOperatorPageContent() {
             <h1 className="text-2xl font-bold text-white">{simpleMode ? 'Add a trip or experience' : 'Cultural Tourism Operator Dashboard'}</h1>
             <p className="text-gray-400 text-sm">{simpleMode ? 'Start with one experience.' : 'Phase 1-3 operator tools: listings, calendar readiness, payout visibility, and verification lane.'}</p>
           </div>
-          <Link href={returnTo} className="px-4 py-2 rounded-lg border border-[#d4af37]/30 text-[#d4af37]">{simpleMode ? 'Back to simple home' : 'Back to Creator Hub'}</Link>
+          <Link href={returnToHref} className="px-4 py-2 rounded-lg border border-[#d4af37]/30 text-[#d4af37]">{simpleMode ? 'Back to simple home' : 'Back to Creator Hub'}</Link>
         </div>
+
+        <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+        {accountSlug ? (
+          <div className="mt-4">
+            <CommunitySplitRulePicker
+              accountLabel={communityLabel}
+              splitRules={communitySplitRules}
+              selectedSplitRuleId={selectedSplitRuleId}
+              onSelect={setSelectedSplitRuleId}
+            />
+          </div>
+        ) : null}
 
         <div className={`grid gap-6 ${simpleMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-4'}`}>
           <div className={`bg-[#141414] border border-[#d4af37]/20 rounded-xl p-4 flex flex-wrap gap-2 items-center ${simpleMode ? '' : 'md:col-span-4'}`}>
@@ -554,7 +624,7 @@ function CulturalTourismOperatorPageContent() {
             <button onClick={create} disabled={!canSubmit || submitting} className="w-full px-3 py-2 rounded-lg bg-[#d4af37] text-black font-medium text-sm disabled:opacity-60">{submitting ? 'Submitting...' : simpleMode ? 'Save this experience' : 'Submit Listing'}</button>
             {simpleMode ? (
               <Link
-                href={`/cultural-tourism/operator?returnTo=/creator-hub`}
+                href={appendAccountSlugToHref('/cultural-tourism/operator?returnTo=/creator-hub', accountSlug || undefined)}
                 className="inline-flex w-full items-center justify-center rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 px-3 py-2 text-sm font-semibold text-[#f3ddb1]"
               >
                 Next: bookable dates

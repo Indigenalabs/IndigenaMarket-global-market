@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { listPlatformAccounts, getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
 import { getCommunityEntityPresentation } from '@/app/lib/communityEntityPresentation';
+import CommunityMarketplaceExplorer from '@/app/components/community/CommunityMarketplaceExplorer';
 
 export const metadata = {
   title: 'Nations & Communities | Indigena Global Market'
@@ -11,7 +12,7 @@ export default async function CommunitiesPage() {
   const featuredAccount = accounts[0];
   const featuredDetail = featuredAccount ? await getPlatformAccountBySlug(featuredAccount.slug) : null;
   const featuredPresentation = featuredDetail
-    ? getCommunityEntityPresentation(featuredDetail.account, featuredDetail.members, featuredDetail.splitRules)
+    ? await getCommunityEntityPresentation(featuredDetail.account, featuredDetail.members, featuredDetail.splitRules)
     : null;
 
   return (
@@ -57,6 +58,12 @@ export default async function CommunitiesPage() {
           ))}
         </div>
 
+        <CommunityMarketplaceExplorer
+          title="Cross-pillar community storefront listings"
+          subtitle="Search across the community-owned marketplace by title, trust, and treasury routing before drilling into a specific nation storefront."
+          emptyLabel="No community-owned listings match the current marketplace facets."
+        />
+
         <section>
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
@@ -72,7 +79,7 @@ export default async function CommunitiesPage() {
               accounts.map(async (account) => {
                 const detail = await getPlatformAccountBySlug(account.slug);
                 if (!detail) return null;
-                const presentation = getCommunityEntityPresentation(detail.account, detail.members, detail.splitRules);
+                const presentation = await getCommunityEntityPresentation(detail.account, detail.members, detail.splitRules);
                 return (
                   <article key={account.id} className="overflow-hidden rounded-[32px] border border-white/10 bg-[#101010] shadow-[0_20px_70px_rgba(0,0,0,0.30)]">
                     <div className="relative h-56 overflow-hidden">

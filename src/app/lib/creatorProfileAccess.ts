@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
-import { resolveRequestActorId } from '@/app/lib/requestIdentity';
+import { resolveRequestActorId, resolveRequestIdentity } from '@/app/lib/requestIdentity';
 import { getSellerPermissionsForActor } from '@/app/lib/indigenousVerification';
 import { getCreatorProfileBySlug } from '@/app/profile/data/profileShowcase';
+import { getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
 
 function asText(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
@@ -94,4 +95,60 @@ export async function requireVerifiedSellerForActor(
   }
 
   return { permissions };
+}
+
+export async function requirePlatformAccountAccess(
+  req: NextRequest,
+  accountSlug: string,
+  options?: {
+    guestMessage?: string;
+    forbiddenMessage?: string;
+    requiredPermissions?: string[];
+  }
+) {
+  const identity = await resolveRequestIdentity(req).catch(() => null);
+  const actorId = identity?.actorId || resolveRequestActorId(req);
+  if (!actorId || actorId === 'guest') {
+    return {
+      error: NextResponse.json(
+        { message: options?.guestMessage || 'Sign in to manage this community storefront.' },
+        { status: 401 }
+      )
+    };
+  }
+
+  const accountData = await getPlatformAccountBySlug(accountSlug);
+  if (!accountData) {
+    return {
+      error: NextResponse.json({ message: 'Community storefront not found.' }, { status: 404 })
+    };
+  }
+
+  const member = accountData.members.find((entry) => entry.actorId.trim().toLowerCase() === actorId.trim().toLowerCase()) || null;
+  if (!member) {
+    return {
+      error: NextResponse.json(
+        { message: options?.forbiddenMessage || 'You are not an authorized operator for this community storefront.' },
+        { status: 403 }
+      )
+    };
+  }
+
+  const requiredPermissions = options?.requiredPermissions || [];
+  if (requiredPermissions.length && !requiredPermissions.every((permission) => member.permissions.includes(permission))) {
+    return {
+      error: NextResponse.json(
+        { message: options?.forbiddenMessage || 'You do not have permission to perform this community storefront action.' },
+        { status: 403 }
+      )
+    };
+  }
+
+  return {
+    actorId,
+    account: accountData.account,
+    member,
+    verification: accountData.verification,
+    splitRules: accountData.splitRules
+  };
 }

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPlatformAccount, listPlatformAccounts } from '@/app/lib/platformAccounts';
-import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestIdentity';
-import { getWalletSessionMe } from '@/app/lib/walletAuthService';
+import { resolveRequestIdentity } from '@/app/lib/requestIdentity';
 
 function text(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
@@ -16,17 +15,25 @@ export async function GET(req: NextRequest) {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean) as any[];
-  const data = await listPlatformAccounts(accountTypes.length ? { accountTypes } : undefined);
+  const mine = ['1', 'true', 'yes'].includes((req.nextUrl.searchParams.get('mine') || '').trim().toLowerCase());
+  const identity = mine ? await resolveRequestIdentity(req) : null;
+  if (mine && !identity?.actorId) {
+    return NextResponse.json({ data: [] });
+  }
+  const data = await listPlatformAccounts({
+    ...(accountTypes.length ? { accountTypes } : {}),
+    ...(mine && identity?.actorId ? { actorId: identity.actorId } : {})
+  });
   return NextResponse.json({ data });
 }
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const session = await getWalletSessionMe(req).catch(() => null);
-  const actorId = session?.actorId || resolveRequestActorId(req) || text(body.actorId) || 'guest';
-  const walletAddress = session?.walletAddress || resolveRequestWallet(req) || '';
+  const identity = await resolveRequestIdentity(req);
+  const actorId = identity?.actorId || text(body.actorId) || 'guest';
+  const walletAddress = identity?.walletAddress || '';
   if (actorId === 'guest' && !text(body.actorId)) {
-    return NextResponse.json({ message: 'Wallet or actor identity required to create a community account.' }, { status: 401 });
+    return NextResponse.json({ message: 'Sign in before creating a community account.' }, { status: 401 });
   }
   const slug = text(body.slug).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!slug) return NextResponse.json({ message: 'Community slug is required.' }, { status: 400 });
@@ -43,7 +50,7 @@ export async function POST(req: NextRequest) {
     authorityProof: text(body.authorityProof),
     communityReferences: list(body.communityReferences),
     actorId,
-    actorDisplayName: text(body.actorDisplayName) || session?.actorId || 'Community representative'
+    actorDisplayName: text(body.actorDisplayName) || identity?.displayName || identity?.email || 'Community representative'
   });
   return NextResponse.json({ data }, { status: 201 });
 }

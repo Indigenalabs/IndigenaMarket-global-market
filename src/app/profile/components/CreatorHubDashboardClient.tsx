@@ -4,6 +4,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Bell,
   BookOpen,
@@ -105,6 +106,14 @@ import {
 import { VERIFICATION_PRODUCTS, type VerificationProductId } from '@/app/lib/verificationRevenue';
 import { fetchPlatformAccounts } from '@/app/lib/platformAccountsApi';
 import type { PlatformAccountRecord } from '@/app/lib/platformAccounts';
+import {
+  getCommunityStorefrontState,
+  isCommunityStorefrontAccount
+} from '@/app/lib/communityStorefrontState';
+import {
+  fetchCommunityStorefrontAnalytics,
+  type CommunityStorefrontAnalyticsSnapshot
+} from '@/app/lib/communityMarketplaceApi';
 import { fetchLaunchpadCampaignsForAccount, updateLaunchpadCampaignStatusApi } from '@/app/lib/launchpadApi';
 import type { LaunchpadCampaign, LaunchpadCampaignStatus } from '@/app/lib/launchpad';
 import {
@@ -259,6 +268,8 @@ const EMBEDDED_CREATE_PILLARS = ['freelancing', 'language-heritage', 'land-food'
 const NATIVE_CREATE_PILLARS = ['digital-arts', 'physical-items', 'courses', 'cultural-tourism'] as const;
 
 export default function CreatorHubDashboardClient({ profile: initialProfile, slug }: { profile: CreatorProfileRecord; slug: string; }) {
+  const searchParams = useSearchParams();
+  const requestedAccountSlug = searchParams.get('accountSlug') || '';
   const [profile, setProfile] = useState(initialProfile);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('simple');
   const [followers, setFollowers] = useState<ProfileConnection[]>([]);
@@ -392,6 +403,8 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
   const [platformAccounts, setPlatformAccounts] = useState<PlatformAccountRecord[]>([]);
   const [activeAccountSlug, setActiveAccountSlug] = useState(slug);
   const [accountFeedback, setAccountFeedback] = useState('');
+  const [communityAnalytics, setCommunityAnalytics] = useState<CommunityStorefrontAnalyticsSnapshot | null>(null);
+  const [communityAnalyticsLoading, setCommunityAnalyticsLoading] = useState(false);
   const [launchpadCampaigns, setLaunchpadCampaigns] = useState<LaunchpadCampaign[]>([]);
   const [launchpadFeedback, setLaunchpadFeedback] = useState('');
   const [isUpdatingLaunchpadCampaignSlug, setIsUpdatingLaunchpadCampaignSlug] = useState('');
@@ -477,12 +490,12 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
 
   useEffect(() => {
     let cancelled = false;
-    fetchPlatformAccounts()
+    fetchPlatformAccounts({ accountTypes: ['community', 'tribe', 'collective'], mine: true })
       .then((data) => {
         if (cancelled) return;
         setPlatformAccounts(data);
-        if (!data.some((entry) => entry.slug === activeAccountSlug)) {
-          setActiveAccountSlug(data[0]?.slug || slug);
+        if (activeAccountSlug !== slug && !data.some((entry) => entry.slug === activeAccountSlug)) {
+          setActiveAccountSlug(slug);
         }
       })
       .catch((error) => {
@@ -492,6 +505,17 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
       cancelled = true;
     };
   }, [slug]);
+
+  useEffect(() => {
+    if (!requestedAccountSlug) return;
+    if (requestedAccountSlug === slug) {
+      setActiveAccountSlug(slug);
+      return;
+    }
+    if (platformAccounts.some((entry) => entry.slug === requestedAccountSlug)) {
+      setActiveAccountSlug(requestedAccountSlug);
+    }
+  }, [platformAccounts, requestedAccountSlug, slug]);
 
   useEffect(() => {
     if (!activeAccountSlug) {
@@ -633,18 +657,115 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
     profile.offerings.find((entry) => entry.id === selectedPromotionOfferId) ?? profile.offerings[0] ?? null;
   const selectedPlacement =
     MARKETING_PLACEMENTS.find((placement) => placement.id === selectedPlacementId) ?? MARKETING_PLACEMENTS[0] ?? null;
-  const activePlatformAccount = useMemo(
-    () => platformAccounts.find((entry) => entry.slug === activeAccountSlug) || platformAccounts.find((entry) => entry.slug === slug) || null,
-    [activeAccountSlug, platformAccounts, slug]
-  );
   const soloStorefrontAccount = useMemo(
-    () => platformAccounts.find((entry) => entry.accountType === 'artist' && entry.slug === slug) || platformAccounts.find((entry) => entry.accountType === 'artist') || null,
-    [platformAccounts, slug]
+    () =>
+      ({
+        id: `solo-${profile.slug}`,
+        slug,
+        displayName: profile.displayName,
+        description: profile.bioShort,
+        accountType: 'artist',
+        location: profile.location,
+        nation: profile.nation,
+        storefrontHeadline: profile.bioShort,
+        verificationStatus: 'approved',
+        treasuryLabel: 'Direct creator payouts',
+        supportUrl: `/profile/${slug}`,
+        payoutWallet: '',
+        avatar: profile.avatar,
+        banner: profile.cover,
+        story: profile.bioLong || profile.bioShort,
+        featuredOfferingIds: profile.offerings.slice(0, 3).map((offering) => offering.id),
+        representativeActorIds: [],
+        createdAt: '',
+        updatedAt: ''
+      }) satisfies PlatformAccountRecord,
+    [profile.avatar, profile.bioLong, profile.bioShort, profile.cover, profile.displayName, profile.location, profile.nation, profile.offerings, profile.slug, slug]
   );
   const nationStorefrontAccounts = useMemo(
     () => platformAccounts.filter((entry) => ['community', 'tribe', 'collective'].includes(entry.accountType)),
     [platformAccounts]
   );
+  const activePlatformAccount = useMemo(
+    () => {
+      if (activeAccountSlug === slug) return soloStorefrontAccount;
+      return nationStorefrontAccounts.find((entry) => entry.slug === activeAccountSlug) || soloStorefrontAccount;
+    },
+    [activeAccountSlug, nationStorefrontAccounts, slug, soloStorefrontAccount]
+  );
+  const communityStorefrontCards = useMemo(
+    () =>
+      nationStorefrontAccounts.map((account) => ({
+        ...account,
+        reviewLabel:
+          account.verificationStatus === 'approved'
+            ? 'Verified community seller'
+            : account.verificationStatus === 'pending'
+              ? 'Waiting on governance review'
+              : account.verificationStatus === 'rejected'
+                ? 'Needs follow-up before selling'
+                : 'Draft review state'
+      })),
+    [nationStorefrontAccounts]
+  );
+  const communityPublishingAccountSlug =
+    activePlatformAccount && ['community', 'tribe', 'collective'].includes(activePlatformAccount.accountType)
+      ? activePlatformAccount.slug
+      : '';
+  const activeCommunityStorefrontState = useMemo(
+    () =>
+      isCommunityStorefrontAccount(activePlatformAccount)
+        ? getCommunityStorefrontState(activePlatformAccount.verificationStatus)
+        : null,
+    [activePlatformAccount]
+  );
+  useEffect(() => {
+    if (!activePlatformAccount || !isCommunityStorefrontAccount(activePlatformAccount)) {
+      setCommunityAnalytics(null);
+      setCommunityAnalyticsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCommunityAnalyticsLoading(true);
+    fetchCommunityStorefrontAnalytics(activePlatformAccount.slug)
+      .then((data) => {
+        if (!cancelled) {
+          setCommunityAnalytics(data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCommunityAnalytics(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCommunityAnalyticsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePlatformAccount]);
+  const topCommunityRoutes = useMemo(() => communityAnalytics?.rollups.slice(0, 3) ?? [], [communityAnalytics]);
+  const topCommunityPillars = useMemo(() => communityAnalytics?.pillarPerformance.slice(0, 3) ?? [], [communityAnalytics]);
+  const withStorefrontContext = (href: string) => {
+    if (!communityPublishingAccountSlug) {
+      return withSimpleMode(href);
+    }
+    const [pathname, rawQuery = ''] = href.split('?');
+    const params = new URLSearchParams(rawQuery);
+    params.set('accountSlug', communityPublishingAccountSlug);
+    const returnTo = params.get('returnTo');
+    if (returnTo) {
+      const [returnPath, returnQuery = ''] = returnTo.split('?');
+      const returnParams = new URLSearchParams(returnQuery);
+      returnParams.set('accountSlug', communityPublishingAccountSlug);
+      params.set('returnTo', `${returnPath}${returnParams.toString() ? `?${returnParams.toString()}` : ''}`);
+    }
+    const scopedHref = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+    return withSimpleMode(scopedHref);
+  };
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
   const launchpadBuilderHref = useMemo(() => {
     const params = new URLSearchParams();
@@ -766,27 +887,27 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         title: 'Commerce lanes',
         detail: 'Best for storefront inventory and products that need pricing, stock, or merchandising.',
         actions: [
-          { label: 'Digital art', href: withSimpleMode('/digital-arts/add?returnTo=/creator-hub') },
-          { label: 'Physical items', href: withSimpleMode('/physical-items/add?returnTo=/creator-hub') },
-          { label: 'Materials & tools', href: withSimpleMode('/creator-hub/new/materials-tools') }
+          { label: 'Digital art', href: withStorefrontContext('/digital-arts/add?returnTo=/creator-hub') },
+          { label: 'Physical items', href: withStorefrontContext('/physical-items/add?returnTo=/creator-hub') },
+          { label: 'Materials & tools', href: withStorefrontContext('/creator-hub/new/materials-tools') }
         ]
       },
       {
         title: 'Service lanes',
         detail: 'Use these for bookings, consulting, and professional or cultural service work.',
         actions: [
-          { label: 'Freelancing', href: withSimpleMode('/creator-hub/new/freelancing') },
-          { label: 'Tourism', href: withSimpleMode('/cultural-tourism/operator?focus=create&returnTo=/creator-hub') },
-          { label: 'Advocacy', href: withSimpleMode('/creator-hub/new/advocacy-legal') }
+          { label: 'Freelancing', href: withStorefrontContext('/creator-hub/new/freelancing') },
+          { label: 'Tourism', href: withStorefrontContext('/cultural-tourism/operator?focus=create&returnTo=/creator-hub') },
+          { label: 'Advocacy', href: withStorefrontContext('/creator-hub/new/advocacy-legal') }
         ]
       },
       {
         title: 'Learning and heritage',
         detail: 'For curriculum, archives, language resources, and stewardship-based publishing.',
         actions: [
-          { label: 'Courses', href: withSimpleMode('/courses/create?returnTo=/creator-hub') },
-          { label: 'Language', href: withSimpleMode('/creator-hub/new/language-heritage') },
-          { label: 'Land & food', href: withSimpleMode('/creator-hub/new/land-food') }
+          { label: 'Courses', href: withStorefrontContext('/courses/create?returnTo=/creator-hub') },
+          { label: 'Language', href: withStorefrontContext('/creator-hub/new/language-heritage') },
+          { label: 'Land & food', href: withStorefrontContext('/creator-hub/new/land-food') }
         ]
       },
       {
@@ -794,11 +915,11 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         detail: 'Use Launchpad for direct fundraising and Seva for platform-reviewed sacred fund requests.',
         actions: [
           { label: 'Launchpad', href: launchpadBuilderHref },
-          { label: 'Seva request', href: withSimpleMode('/seva?focus=request&returnTo=/creator-hub') }
+          { label: 'Seva request', href: withStorefrontContext('/seva?focus=request&returnTo=/creator-hub') }
         ]
       }
     ],
-    [launchpadBuilderHref, withSimpleMode]
+    [launchpadBuilderHref, withStorefrontContext]
   );
   const marketingCampaignGroups = useMemo(
     () => ({
@@ -1078,6 +1199,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
       await requireWalletAction('apply bulk listing changes');
       const result = await updateProfileOfferingsBulk({
         slug,
+        accountSlug: communityPublishingAccountSlug || undefined,
         offeringIds: selectedOfferingIds,
         operation
       });
@@ -1109,6 +1231,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
       await requireWalletAction('save in-hub listing changes');
       const result = await updateProfileOffering({
         slug,
+        accountSlug: communityPublishingAccountSlug || undefined,
         offeringId: selectedStudioOffering.id,
         ...studioOfferingDraft
       });
@@ -1683,6 +1806,58 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 ) : null}
               </div>
               {accountFeedback ? <p className="mt-3 text-sm text-[#f3deb1]">{accountFeedback}</p> : null}
+              <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Your represented community storefronts</p>
+                    <p className="mt-2 text-sm text-gray-300">
+                      These are the nation and community pages you can currently operate from Creator Hub.
+                    </p>
+                  </div>
+                  <Link href="/communities/create" className="rounded-full border border-white/10 px-4 py-2 text-sm text-white hover:border-[#d4af37]/35">
+                    Add another community page
+                  </Link>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {communityStorefrontCards.length > 0 ? (
+                    communityStorefrontCards.map((account) => (
+                      <div key={account.id} className="rounded-[20px] border border-white/10 bg-[#111111] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">{account.displayName}</p>
+                            <p className="mt-1 text-xs text-gray-400">
+                              {account.accountType} | {account.nation || 'No nation label yet'}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-[#d4af37]">
+                            {account.verificationStatus}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-sm text-gray-300">{account.reviewLabel}</p>
+                        <p className="mt-2 text-sm text-white/70">{account.treasuryLabel}</p>
+                        <div className="mt-4 flex flex-wrap gap-2 text-sm">
+                          <button
+                            onClick={() => setActiveAccountSlug(account.slug)}
+                            className="rounded-full bg-[#d4af37] px-4 py-2 font-semibold text-black hover:bg-[#f4d370]"
+                          >
+                            Work in this storefront
+                          </button>
+                          <Link href={`/communities/${account.slug}`} className="rounded-full border border-white/10 px-4 py-2 text-white hover:border-[#d4af37]/35">
+                            Open page
+                          </Link>
+                          <Link href={`/communities/${account.slug}/verification`} className="rounded-full border border-white/10 px-4 py-2 text-white hover:border-[#d4af37]/35">
+                            Verification
+                          </Link>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[20px] border border-dashed border-white/10 bg-[#111111] p-4 text-sm text-gray-400 md:col-span-2">
+                      No community storefronts are linked to your current identity yet. Create one when you are ready to operate on behalf of a nation, tribe, or collective.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1743,6 +1918,72 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
 
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {activePlatformAccount && isCommunityStorefrontAccount(activePlatformAccount) ? (
+            <section className="rounded-[30px] border border-[#d4af37]/18 bg-[linear-gradient(135deg,rgba(212,175,55,0.08),rgba(17,17,17,0.92))] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Community storefront performance</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-white">{activePlatformAccount.displayName}</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-7 text-gray-300">
+                    Represented-community analytics stay inside Creator Hub so we can judge listing depth, treasury routing intent, and actual treasury capture without jumping out to the public storefront.
+                  </p>
+                </div>
+                <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs text-white/72">
+                  {communityAnalyticsLoading ? 'Refreshing storefront analytics...' : activeCommunityStorefrontState?.detail || 'Community storefront analytics'}
+                </div>
+              </div>
+              {communityAnalytics ? (
+                <>
+                  <div className="mt-5 grid gap-4 md:grid-cols-4">
+                    <StatCard label="Live offers" value={communityAnalytics.summary.liveOfferCount.toString()} />
+                    <StatCard label="Projected gross" value={`$${communityAnalytics.summary.projectedGrossValue.toLocaleString()}`} />
+                    <StatCard label="Realized flow" value={`$${communityAnalytics.summary.realizedGrossValue.toLocaleString()}`} />
+                    <StatCard label="Treasury capture" value={`$${communityAnalytics.summary.realizedTreasuryValue.toLocaleString()}`} />
+                  </div>
+                  <div className="mt-5 grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
+                    <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Top split routes</p>
+                      <div className="mt-4 space-y-3">
+                        {topCommunityRoutes.map((route) => (
+                          <div key={route.routingKey} className="rounded-[20px] border border-white/10 bg-[#111111] p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-medium text-white">{route.label}</p>
+                                <p className="mt-1 text-xs text-gray-400">{route.liveOfferCount} live offers | {route.realizedOrderCount} realized orders</p>
+                              </div>
+                              <span className="text-sm font-semibold text-[#d4af37]">{route.sellThroughRate}% sell-through</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Best-performing pillars</p>
+                      <div className="mt-4 space-y-3">
+                        {topCommunityPillars.map((pillar) => (
+                          <div key={pillar.pillarLabel} className="rounded-[20px] border border-white/10 bg-[#111111] p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-medium text-white">{pillar.pillarLabel}</p>
+                                <p className="mt-1 text-xs text-gray-400">{pillar.liveOfferCount} live offers | ${pillar.projectedGrossValue.toLocaleString()} projected</p>
+                              </div>
+                              <span className="text-sm font-semibold text-[#d4af37]">{pillar.treasuryCaptureRate}% capture</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 text-sm text-gray-300">
+                  {communityAnalyticsLoading
+                    ? 'Loading community storefront analytics.'
+                    : 'This storefront does not have treasury performance data yet. Publish community-owned listings and let routing activity build the analytics surface.'}
+                </div>
+              )}
+            </section>
+          ) : null}
           {workspaceMode === 'simple' && (
             <section className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
               <Panel title="Start here" eyebrow="Recommended flow" icon={Sparkles}>
@@ -2075,6 +2316,20 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 Creator Free supports up to {profile.creatorPlanCapabilities?.maxListings ?? 0} active listings. You currently have {profile.offerings.length}. Upgrade to Creator or Studio for unlimited publishing and advanced analytics.
               </div>
             ) : null}
+            {activeCommunityStorefrontState && activePlatformAccount ? (
+              <div className="mb-4 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Publishing as {activePlatformAccount.displayName}</p>
+                    <p className="mt-2 text-sm font-medium text-white">{activeCommunityStorefrontState.title}</p>
+                    <p className="mt-2 text-sm leading-7 text-gray-400">{activeCommunityStorefrontState.detail}</p>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${activeCommunityStorefrontState.badgeClassName}`}>
+                    {activeCommunityStorefrontState.badgeLabel}
+                  </span>
+                </div>
+              </div>
+            ) : null}
             {workspaceMode === 'simple' ? (
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-[#d4af37]/20 bg-[#d4af37]/10 px-4 py-4 text-sm text-[#f3deb1]">
@@ -2140,12 +2395,12 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 <p className="text-sm leading-7 text-gray-300">
                   Seva stays platform-governed. Start the request from Creator Hub, then the platform review team decides whether it becomes a live Sacred Fund project.
                 </p>
-                <Link href={withSimpleMode(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
+                <Link href={withStorefrontContext(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
                   Open Seva request flow
                 </Link>
               </div>
             ) : EMBEDDED_CREATE_PILLARS.includes(resolveLauncherPillar(selectedCreateConfig.title) as (typeof EMBEDDED_CREATE_PILLARS)[number]) ? (
-              <QuickCreateClient pillar={resolveLauncherPillar(selectedCreateConfig.title)} embedded simpleMode={workspaceMode === 'simple'} />
+              <QuickCreateClient pillar={resolveLauncherPillar(selectedCreateConfig.title)} embedded simpleMode={workspaceMode === 'simple'} accountSlug={communityPublishingAccountSlug || undefined} />
             ) : (
               <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
                 <p className="text-sm leading-7 text-gray-300">
@@ -2153,9 +2408,9 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 </p>
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                   <StatusRow title="Full pillar editor" detail="Opens the native publishing experience with Creator Hub return routing." actionLabel="Ready" />
-                  <StatusRow title="Creator-first path" detail="Best for deeper media uploads, scheduling, pricing, and pillar-specific settings." actionLabel="Advanced" />
+                  <StatusRow title="Creator-first path" detail="Best for deeper media uploads, scheduling, pricing, and pillar-specific settings." actionLabel={activeCommunityStorefrontState ? activeCommunityStorefrontState.badgeLabel : 'Advanced'} />
                 </div>
-                <Link href={withSimpleMode(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
+                <Link href={withStorefrontContext(selectedCreateConfig.href)} className="mt-5 inline-flex rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
                   {workspaceMode === 'simple' ? 'Keep going on the full page' : 'Open full workflow'}
                 </Link>
               </div>
@@ -2195,6 +2450,20 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 <Panel title={selectedStudioOffering ? selectedStudioOffering.title : 'Listing editor'} eyebrow="In-hub merchandising" icon={Palette}>
                   {selectedStudioOffering ? (
                     <div className="space-y-4">
+                      {activeCommunityStorefrontState && activePlatformAccount ? (
+                        <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">Storefront publish state</p>
+                              <p className="mt-2 text-sm font-medium text-white">{activePlatformAccount.displayName}</p>
+                              <p className="mt-2 text-sm leading-7 text-gray-400">{activeCommunityStorefrontState.detail}</p>
+                            </div>
+                            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${activeCommunityStorefrontState.badgeClassName}`}>
+                              {activeCommunityStorefrontState.badgeLabel}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="grid gap-4 sm:grid-cols-2">
                         <FieldInput label="Title" value={studioOfferingDraft.title} onChange={(value) => setStudioOfferingDraft((current) => ({ ...current, title: value }))} />
                         <FieldInput label="Price label" value={studioOfferingDraft.priceLabel} onChange={(value) => setStudioOfferingDraft((current) => ({ ...current, priceLabel: value }))} />
@@ -2296,10 +2565,10 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                         <button onClick={handleSaveStudioOffering} disabled={isSavingStudioOffering} className="rounded-full bg-[#d4af37] px-5 py-3 text-sm font-semibold text-black hover:bg-[#f4d370] disabled:opacity-60">
                           {isSavingStudioOffering ? 'Saving...' : 'Save in hub'}
                         </button>
-                        <Link href={getCreatorHubEditHref(selectedStudioOffering.id)} className="rounded-full border border-white/10 px-5 py-3 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white">
+                        <Link href={getCreatorHubEditHref(selectedStudioOffering.id, communityPublishingAccountSlug || undefined)} className="rounded-full border border-white/10 px-5 py-3 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white">
                           Open full hub editor
                         </Link>
-                        <Link href={getNativeCreatorEditorHref(selectedStudioOffering, profile.slug)} className="rounded-full border border-[#d4af37]/20 px-5 py-3 text-sm text-[#d4af37] hover:border-[#d4af37]/45 hover:text-[#f4d370]">
+                        <Link href={getNativeCreatorEditorHref(selectedStudioOffering, profile.slug, communityPublishingAccountSlug || undefined)} className="rounded-full border border-[#d4af37]/20 px-5 py-3 text-sm text-[#d4af37] hover:border-[#d4af37]/45 hover:text-[#f4d370]">
                           Advanced pillar editor
                         </Link>
                       </div>
@@ -3482,6 +3751,40 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
               <StatCard key={metric.id} label={metric.label} value={metric.value} />
             ))}
           </div>
+          {communityAnalytics ? (
+            <Panel title="Community storefront analytics" eyebrow="Treasury-aware performance" icon={Store}>
+              <div className="grid gap-4 md:grid-cols-4">
+                <StatCard label="Live offers" value={communityAnalytics.summary.liveOfferCount.toString()} />
+                <StatCard label="Projected gross" value={`$${communityAnalytics.summary.projectedGrossValue.toLocaleString()}`} />
+                <StatCard label="Realized flow" value={`$${communityAnalytics.summary.realizedGrossValue.toLocaleString()}`} />
+                <StatCard label="Treasury share" value={`$${communityAnalytics.summary.realizedTreasuryValue.toLocaleString()}`} />
+              </div>
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                <div className="space-y-3">
+                  {communityAnalytics.rollups.slice(0, 4).map((route) => (
+                    <div key={route.routingKey} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-sm text-white">{route.label}</span>
+                        <span className="text-sm font-semibold text-[#d4af37]">{route.sellThroughRate}%</span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-400">${route.realizedTreasuryValue.toLocaleString()} treasury share | {route.realizedOrderCount} orders</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  {communityAnalytics.pillarPerformance.slice(0, 4).map((pillar) => (
+                    <div key={pillar.pillarLabel} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-sm text-white">{pillar.pillarLabel}</span>
+                        <span className="text-sm font-semibold text-[#d4af37]">{pillar.treasuryCaptureRate}%</span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-400">{pillar.liveOfferCount} offers | ${pillar.realizedGrossValue.toLocaleString()} realized flow</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+          ) : null}
           <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
           <Panel title="Sales by Pillar" eyebrow="Revenue mix" icon={Sparkles}>
             <div className="space-y-3">

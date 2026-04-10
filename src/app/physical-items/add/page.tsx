@@ -13,9 +13,15 @@ import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/app/components/Sidebar';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
+import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
+import CommunitySplitRulePicker from '@/app/components/community/CommunitySplitRulePicker';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
-import { assertLegacyListingPublishAllowed, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
+import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
+import { extractCommunitySplitRuleId } from '@/app/lib/communityPublishing';
+import { fetchPlatformAccount } from '@/app/lib/platformAccountsApi';
+import { assertLegacyListingPublishAllowed, createProfileOffering, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
+import type { RevenueSplitRuleRecord } from '@/app/lib/platformAccounts';
 
 // ── 15 Category definitions ────────────────────────────────────────────────
 const CATEGORIES = [
@@ -1034,8 +1040,13 @@ function AddPhysicalItemListingContent() {
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
   const requestedProfileSlug = searchParams.get('slug') || '';
+  const accountSlug = searchParams.get('accountSlug') || '';
+  const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
+  const [communitySplitRules, setCommunitySplitRules] = useState<RevenueSplitRuleRecord[]>([]);
+  const [selectedSplitRuleId, setSelectedSplitRuleId] = useState('');
+  const [communityLabel, setCommunityLabel] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<ItemForm>(defaultForm);
@@ -1087,6 +1098,33 @@ function AddPhysicalItemListingContent() {
     };
   }, [editOfferingId, profileSlug]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountSlug) {
+      setCommunitySplitRules([]);
+      setSelectedSplitRuleId('');
+      setCommunityLabel('');
+      return;
+    }
+    fetchPlatformAccount(accountSlug)
+      .then((detail) => {
+        if (cancelled) return;
+        const activeRules = detail.splitRules.filter((entry) => entry.status === 'active');
+        const existingRuleId = extractCommunitySplitRuleId(mirrorOffering?.metadata);
+        setCommunitySplitRules(activeRules);
+        setCommunityLabel(detail.account.displayName);
+        setSelectedSplitRuleId((current) => current || existingRuleId || activeRules[0]?.id || '');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommunitySplitRules([]);
+        setCommunityLabel('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSlug, mirrorOffering?.metadata]);
+
   const canProceed = () => {
     if (step === 1) return !!form.categoryId && !!form.subcategory;
     if (step === 2) return !!form.title.trim() && !!form.description.trim() &&
@@ -1110,43 +1148,65 @@ function AddPhysicalItemListingContent() {
       if (!profileSlug) setProfileSlug(activeProfileSlug);
       await assertLegacyListingPublishAllowed(activeProfileSlug, Boolean(editOfferingId));
       await new Promise(r => setTimeout(r, 1800));
-      if (editOfferingId) {
-        const coverImage = form.imageUrls[0] || form.imageInput || mirrorOffering?.coverImage || '';
-        const availabilityLabel =
-          form.listingType === 'reserved'
-            ? 'By request'
-            : form.listingType === 'auction'
-              ? 'Bidding live'
-              : Number(form.stockCount || 0) > 0
-                ? 'Available now'
-                : 'Made to order';
-        const availabilityTone: ProfileOffering['availabilityTone'] =
-          form.listingType === 'auction' ? 'warning' : form.listingType === 'reserved' ? 'default' : 'success';
-        const ctaMode: NonNullable<ProfileOffering['ctaMode']> =
+      const coverImage = form.imageUrls[0] || form.imageInput || mirrorOffering?.coverImage || '';
+      const availabilityLabel =
+        form.listingType === 'reserved'
+          ? 'By request'
+          : form.listingType === 'auction'
+            ? 'Bidding live'
+            : Number(form.stockCount || 0) > 0
+              ? 'Available now'
+              : 'Made to order';
+      const availabilityTone: ProfileOffering['availabilityTone'] =
+        form.listingType === 'auction' ? 'warning' : form.listingType === 'reserved' ? 'default' : 'success';
+      const ctaMode: NonNullable<ProfileOffering['ctaMode']> =
+        form.listingType === 'commission' || form.listingType === 'reserved'
+          ? 'quote'
+          : 'buy';
+      const nextPayload = {
+        slug: activeProfileSlug,
+        accountSlug: accountSlug || undefined,
+        splitRuleId: selectedSplitRuleId || undefined,
+        title: form.title.trim(),
+        blurb: form.description.trim(),
+        priceLabel: form.price ? `${form.currency} ${form.price}` : (form.buyNowPrice ? `${form.currency} ${form.buyNowPrice}` : mirrorOffering?.priceLabel || ''),
+        status: 'Active',
+        coverImage,
+        ctaMode,
+        ctaPreset:
           form.listingType === 'commission' || form.listingType === 'reserved'
-            ? 'quote'
-            : 'buy';
-
+            ? 'request-quote'
+            : 'collect-now',
+        merchandisingRank: mirrorOffering?.merchandisingRank ?? 0,
+        galleryOrder: form.imageUrls,
+        launchWindowStartsAt: mirrorOffering?.launchWindowStartsAt || '',
+        launchWindowEndsAt: mirrorOffering?.launchWindowEndsAt || '',
+        availabilityLabel,
+        availabilityTone,
+        featured: mirrorOffering?.featured ?? false
+      } as const;
+      if (editOfferingId) {
         await updateProfileOffering({
-          slug: activeProfileSlug,
           offeringId: editOfferingId,
-          title: form.title.trim(),
-          blurb: form.description.trim(),
-          priceLabel: form.price ? `${form.currency} ${form.price}` : (form.buyNowPrice ? `${form.currency} ${form.buyNowPrice}` : mirrorOffering?.priceLabel || ''),
-          status: 'Active',
-          coverImage,
-          ctaMode,
-          ctaPreset:
-            form.listingType === 'commission' || form.listingType === 'reserved'
-              ? 'request-quote'
-              : 'collect-now',
-          merchandisingRank: mirrorOffering?.merchandisingRank ?? 0,
-          galleryOrder: form.imageUrls,
-          launchWindowStartsAt: mirrorOffering?.launchWindowStartsAt || '',
-          launchWindowEndsAt: mirrorOffering?.launchWindowEndsAt || '',
-          availabilityLabel,
-          availabilityTone,
-          featured: mirrorOffering?.featured ?? false
+          ...nextPayload
+        });
+      } else {
+        await createProfileOffering({
+          ...nextPayload,
+          pillar: 'physical-items',
+          pillarLabel: 'Physical Items',
+          icon: '📦',
+          offeringType:
+            form.listingType === 'commission'
+              ? 'Commission'
+              : form.listingType === 'auction'
+                ? 'Auction'
+                : form.listingType === 'reserved'
+                  ? 'Reserved'
+                  : 'Ready to ship',
+          image: coverImage,
+          href: appendAccountSlugToHref('/physical-items', accountSlug || undefined),
+          metadata: ['Created in Physical Items studio']
         });
       }
       setPublished(true);
@@ -1232,7 +1292,7 @@ function AddPhysicalItemListingContent() {
                 <h1 className="mt-3 text-3xl font-semibold text-white">Add something physical</h1>
                 <p className="mt-2 text-sm leading-7 text-gray-300">One step at a time.</p>
               </div>
-              <Link href={returnTo} className="rounded-full border border-[#d4af37]/30 px-4 py-2 text-sm text-[#d4af37]">
+              <Link href={returnToHref} className="rounded-full border border-[#d4af37]/30 px-4 py-2 text-sm text-[#d4af37]">
                 Back to simple home
               </Link>
             </div>
@@ -1241,6 +1301,18 @@ function AddPhysicalItemListingContent() {
           <div className="max-w-3xl">
             <StepBar current={step} />
             <div className="bg-[#141414] border border-white/5 rounded-2xl p-6">
+              <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+              {accountSlug ? <div className="mt-4" /> : null}
+              {accountSlug ? (
+                <div className="mb-4">
+                  <CommunitySplitRulePicker
+                    accountLabel={communityLabel}
+                    splitRules={communitySplitRules}
+                    selectedSplitRuleId={selectedSplitRuleId}
+                    onSelect={setSelectedSplitRuleId}
+                  />
+                </div>
+              ) : null}
               {step === 1 && <Step1 form={form} update={update} simpleMode={simpleMode} />}
               {step === 2 && <Step2 form={form} update={update} simpleMode={simpleMode} />}
               {step === 3 && <Step3 form={form} update={update} simpleMode={simpleMode} />}
@@ -1301,7 +1373,7 @@ function AddPhysicalItemListingContent() {
       <div className="flex-1 min-w-0">
         {/* Top bar */}
         <div className="sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-sm border-b border-white/5 px-6 py-4 flex items-center gap-4">
-          <Link href={returnTo} className="flex items-center gap-1.5 text-gray-400 hover:text-[#d4af37] transition-colors text-sm">
+          <Link href={returnToHref} className="flex items-center gap-1.5 text-gray-400 hover:text-[#d4af37] transition-colors text-sm">
             <ArrowLeft size={16} /> Back
           </Link>
           <div className="flex items-center gap-2">
@@ -1318,6 +1390,18 @@ function AddPhysicalItemListingContent() {
           <div className="flex-1 min-w-0">
             <StepBar current={step} />
             <div className="bg-[#141414] border border-white/5 rounded-2xl p-6">
+              <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+              {accountSlug ? <div className="mt-4" /> : null}
+              {accountSlug ? (
+                <div className="mb-4">
+                  <CommunitySplitRulePicker
+                    accountLabel={communityLabel}
+                    splitRules={communitySplitRules}
+                    selectedSplitRuleId={selectedSplitRuleId}
+                    onSelect={setSelectedSplitRuleId}
+                  />
+                </div>
+              ) : null}
               {step === 1 && <Step1 form={form} update={update} simpleMode={simpleMode} />}
               {step === 2 && <Step2 form={form} update={update} simpleMode={simpleMode} />}
               {step === 3 && <Step3 form={form} update={update} simpleMode={simpleMode} />}

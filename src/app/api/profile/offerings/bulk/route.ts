@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { requireCreatorProfileOwner, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
+import { requireCreatorProfileOwner, requirePlatformAccountAccess, requireVerifiedSellerForActor } from '@/app/lib/creatorProfileAccess';
+import { buildCommunityPublishingMetadata } from '@/app/lib/communityPublishing';
 import {
   updateCreatorProfileOfferingsBulk,
   updateCreatorProfilePresentation
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
   }
 
   const slug = asText(body.slug);
+  const accountSlug = asText(body.accountSlug);
   const offeringIds = asStringArray(body.offeringIds);
   const operation = asText(body.operation) as BulkOperation;
 
@@ -103,6 +105,17 @@ export async function POST(req: NextRequest) {
   if ('error' in owner) return owner.error;
 
   if (operationRequiresVerifiedSeller(operation)) {
+    if (accountSlug) {
+      const accountAccess = await requirePlatformAccountAccess(req, accountSlug, {
+        guestMessage: 'Sign in to publish for a community storefront.',
+        forbiddenMessage: 'You are not allowed to publish for this community storefront.',
+        requiredPermissions: ['publish']
+      });
+      if ('error' in accountAccess) return accountAccess.error;
+      if (accountAccess.account.verificationStatus !== 'approved') {
+        return NextResponse.json({ message: 'This community storefront must be approved before you can publish listings under it.' }, { status: 403 });
+      }
+    }
     const sellerGate = await requireVerifiedSellerForActor(owner.actorId, {
       forbiddenMessage: 'Verification approval is required before you can publish or feature listings.'
     });
@@ -119,17 +132,52 @@ export async function POST(req: NextRequest) {
   }
 
   if (owner.supabase) {
-    const { error: offeringsError } = await owner.supabase
-      .from('creator_profile_offerings')
-      .update({
-        ...(nextState.status ? { status: nextState.status } : {}),
-        ...(nextState.availabilityLabel ? { availability_label: nextState.availabilityLabel } : {}),
-        ...(nextState.availabilityTone ? { availability_tone: nextState.availabilityTone } : {}),
-        ...(typeof nextState.featured === 'boolean' ? { featured: nextState.featured } : {}),
-        updated_at: new Date().toISOString()
-      })
-      .in('id', offeringIds)
-      .eq('profile_slug', slug);
+    let offeringsError: { message?: string } | null = null;
+    if (accountSlug) {
+      const accountAccess = await requirePlatformAccountAccess(req, accountSlug, {
+        guestMessage: 'Sign in to publish for a community storefront.',
+        forbiddenMessage: 'You are not allowed to publish for this community storefront.',
+        requiredPermissions: ['publish']
+      });
+      if ('error' in accountAccess) return accountAccess.error;
+
+      const { data: rows } = await owner.supabase
+        .from('creator_profile_offerings')
+        .select('id,metadata')
+        .in('id', offeringIds)
+        .eq('profile_slug', slug);
+
+      await Promise.all(
+        (rows || []).map(async (row) => {
+          const { error } = await owner.supabase
+            .from('creator_profile_offerings')
+            .update({
+              ...(nextState.status ? { status: nextState.status } : {}),
+              ...(nextState.availabilityLabel ? { availability_label: nextState.availabilityLabel } : {}),
+              ...(nextState.availabilityTone ? { availability_tone: nextState.availabilityTone } : {}),
+              ...(typeof nextState.featured === 'boolean' ? { featured: nextState.featured } : {}),
+              metadata: buildCommunityPublishingMetadata((row.metadata as string[] | undefined) || [], accountAccess.account),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', String(row.id || ''))
+            .eq('profile_slug', slug);
+          if (error && !offeringsError) offeringsError = error;
+        })
+      );
+    } else {
+      const { error } = await owner.supabase
+        .from('creator_profile_offerings')
+        .update({
+          ...(nextState.status ? { status: nextState.status } : {}),
+          ...(nextState.availabilityLabel ? { availability_label: nextState.availabilityLabel } : {}),
+          ...(nextState.availabilityTone ? { availability_tone: nextState.availabilityTone } : {}),
+          ...(typeof nextState.featured === 'boolean' ? { featured: nextState.featured } : {}),
+          updated_at: new Date().toISOString()
+        })
+        .in('id', offeringIds)
+        .eq('profile_slug', slug);
+      offeringsError = error;
+    }
 
     if (offeringsError) {
       return NextResponse.json({ message: offeringsError.message || 'Unable to update listings.' }, { status: 500 });
@@ -156,7 +204,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const updatedProfile = updateCreatorProfileOfferingsBulk(slug, offeringIds, nextState);
+  const publishingAccount =
+    accountSlug
+      ? await requirePlatformAccountAccess(req, accountSlug, {
+          guestMessage: 'Sign in to publish for a community storefront.',
+          forbiddenMessage: 'You are not allowed to publish for this community storefront.',
+          requiredPermissions: ['publish']
+        }).catch(() => null)
+      : null;
+  const updatedProfile = updateCreatorProfileOfferingsBulk(slug, offeringIds, {
+    ...nextState,
+    ...(publishingAccount && !('error' in publishingAccount)
+      ? {
+          metadata: buildCommunityPublishingMetadata(undefined, publishingAccount.account)
+        }
+      : {})
+  });
   const updatedPresentation =
     operation === 'feature' || operation === 'unfeature'
       ? updateCreatorProfilePresentation(slug, { featuredOfferingIds: nextFeaturedIds }).presentation

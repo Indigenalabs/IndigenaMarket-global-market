@@ -27,6 +27,7 @@ import PillarArtistSpotlight from './PillarArtistSpotlight';
 import PromotedCourses from './PromotedCourses';
 import InstructorSpotlight from './InstructorSpotlight';
 import BundlePromotions from './BundlePromotions';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
 import { PILLAR3_CATEGORIES } from '../../courses/data/pillar3Catalog';
 import {
   fetchCoursesCatalog,
@@ -38,6 +39,7 @@ import {
   reportCourse,
   type CourseRecord
 } from '../../lib/coursesMarketplaceApi';
+import { fetchCommunityMarketplaceOffers, type CommunityMarketplaceOffer } from '@/app/lib/communityMarketplaceApi';
 import { requireWalletAction } from '../../lib/requireWalletAction';
 import { getMarketplaceCardMerchandising } from './marketplaceCardMerchandising';
 
@@ -684,6 +686,7 @@ export default function CoursesMarketplace() {
   const [filterVerification, setFilterVerification] = useState('');
   const [filterMinPrice, setFilterMinPrice] = useState('');
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
+  const [communityCourseOffers, setCommunityCourseOffers] = useState<CommunityMarketplaceOffer[]>([]);
 
   const filteredCourses = useMemo(() => {
     let list = [...displayedCourses];
@@ -734,6 +737,55 @@ export default function CoursesMarketplace() {
 
     return list;
   }, [displayedCourses, activeCategory, searchQuery, filterLevel, filterDuration, filterVerification, filterMinPrice, filterMaxPrice, sortBy]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCommunityMarketplaceOffers({ pillar: 'courses', search: searchQuery || undefined })
+      .then((offers) => {
+        if (!cancelled) {
+          setCommunityCourseOffers(offers);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCommunityCourseOffers([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery]);
+
+  const visibleCommunityCourseOffers = useMemo(
+    () =>
+      communityCourseOffers
+        .filter((offer) => activeCategory === 'all' || offer.title.toLowerCase().includes(activeCategory.replace(/_/g, ' ')))
+        .slice(0, 2),
+    [activeCategory, communityCourseOffers]
+  );
+
+  const mixedCourseFeed = useMemo(() => {
+    const feed: Array<
+      | { type: 'course'; course: (typeof courses)[number] }
+      | { type: 'community'; offer: CommunityMarketplaceOffer }
+    > = [];
+
+    filteredCourses.forEach((course, idx) => {
+      feed.push({ type: 'course', course });
+      if ((idx === 1 || (filteredCourses.length === 1 && idx === 0)) && visibleCommunityCourseOffers[0]) {
+        feed.push({ type: 'community', offer: visibleCommunityCourseOffers[0] });
+      }
+      if (idx === 4 && visibleCommunityCourseOffers[1]) {
+        feed.push({ type: 'community', offer: visibleCommunityCourseOffers[1] });
+      }
+    });
+
+    if (filteredCourses.length === 0) {
+      visibleCommunityCourseOffers.forEach((offer) => feed.push({ type: 'community', offer }));
+    }
+
+    return feed;
+  }, [filteredCourses, visibleCommunityCourseOffers]);
 
   const loadMoreCourses = () => {
     if (usingMockFallback || isFetchingCatalog || !hasMore) return;
@@ -1127,13 +1179,18 @@ export default function CoursesMarketplace() {
           ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' 
           : 'grid-cols-1'
       }`}>
-        {filteredCourses.map((course) => {
+        {mixedCourseFeed.map((entry) => {
+          if (entry.type === 'community') {
+            return <CommunityMarketplaceCard key={`community-course-${entry.offer.id}`} offer={entry.offer} mode="mixed" className="h-full" />;
+          }
+
+          const course = entry.course;
           const merch = getMarketplaceCardMerchandising({
-            title: course.title,
+            title: course.title || 'Untitled course',
             pillarLabel: 'Courses',
-            image: course.thumbnail,
-            coverImage: course.thumbnail,
-            galleryOrder: [course.thumbnail],
+            image: course.thumbnail || '',
+            coverImage: course.thumbnail || '',
+            galleryOrder: course.thumbnail ? [course.thumbnail] : [],
             ctaMode: 'enroll',
             ctaPreset: 'enroll-now',
             availabilityLabel: 'Open enrollment',
@@ -1141,8 +1198,8 @@ export default function CoursesMarketplace() {
             featured: Boolean(course.isFeatured),
             merchandisingRank: course.isFeatured ? 2 : 12,
             status: 'Active',
-            priceLabel: `${course.price} ${course.currency}`,
-            blurb: course.description,
+            priceLabel: `${course.price ?? 0} ${course.currency || 'INDI'}`,
+            blurb: course.description || '',
           });
 
           return <div
@@ -1295,7 +1352,7 @@ export default function CoursesMarketplace() {
       </div>
 
       {/* Empty state */}
-      {filteredCourses.length === 0 && (
+      {filteredCourses.length === 0 && visibleCommunityCourseOffers.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <GraduationCap size={48} className="text-gray-600 mb-4" />
           <p className="text-white font-semibold text-lg">No courses found</p>

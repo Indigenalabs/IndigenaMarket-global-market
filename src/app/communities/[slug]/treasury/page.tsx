@@ -3,12 +3,20 @@ import { notFound } from 'next/navigation';
 import { getPlatformAccountBySlug } from '@/app/lib/platformAccounts';
 import { getTreasuryByCommunitySlug } from '@/app/lib/platformTreasury';
 import { getCommunityEntityPresentation } from '@/app/lib/communityEntityPresentation';
+import { getCommunityTreasuryRollups } from '@/app/lib/communityMarketplace';
 
 export default async function CommunityTreasuryPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const [entity, treasuryData] = await Promise.all([getPlatformAccountBySlug(slug), getTreasuryByCommunitySlug(slug)]);
   if (!entity || !treasuryData) notFound();
-  const presentation = getCommunityEntityPresentation(entity.account, entity.members, entity.splitRules);
+  const presentation = await getCommunityEntityPresentation(entity.account, entity.members, entity.splitRules);
+  const treasuryRollups = await getCommunityTreasuryRollups(slug);
+  const storefrontGroups = presentation.storefrontItems.reduce<Record<string, typeof presentation.storefrontItems>>((acc, item) => {
+    const key = item.splitRuleId || item.splitLabel || 'Unrouted community offers';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
 
   return (
     <main className="min-h-screen bg-[#090909] px-4 py-6 text-white md:px-8 md:py-8">
@@ -74,6 +82,166 @@ export default async function CommunityTreasuryPage({ params }: { params: Promis
           </div>
 
           <div className="space-y-6">
+            {treasuryRollups ? (
+              <div className="rounded-[32px] border border-[#d4af37]/18 bg-[linear-gradient(135deg,rgba(212,175,55,0.08),rgba(17,17,17,0.92))] p-6">
+                <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Treasury rollups</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Live intent matched against real treasury flow</h2>
+                <p className="mt-3 text-sm leading-7 text-white/66">
+                  These rollups combine current storefront routing intent with actual split-distribution activity already recorded for this treasury.
+                </p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    { label: 'Live routed offers', value: treasuryRollups.summary.liveOfferCount.toString() },
+                    { label: 'Projected gross intent', value: `$${treasuryRollups.summary.projectedGrossValue.toLocaleString()}` },
+                    { label: 'Realized gross flow', value: `$${treasuryRollups.summary.realizedGrossValue.toLocaleString()}` },
+                    { label: 'Realized treasury share', value: `$${treasuryRollups.summary.realizedTreasuryValue.toLocaleString()}` }
+                  ].map((metric) => (
+                    <div key={metric.label} className="rounded-[20px] border border-white/10 bg-black/20 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">{metric.label}</p>
+                      <p className="mt-2 text-xl font-semibold text-white">{metric.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-3">
+                  {treasuryRollups.rollups.map((rollup) => (
+                    <div key={rollup.routingKey} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{rollup.label}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">
+                            {rollup.liveOfferCount} live offers | {rollup.realizedOrderCount} realized orders | {rollup.ledgerEntries} ledger matches
+                          </p>
+                        </div>
+                        <div className="grid gap-2 text-right text-xs text-white/62 sm:grid-cols-5 sm:text-left">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Projected</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${rollup.projectedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Realized gross</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${rollup.realizedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury share</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${rollup.realizedTreasuryValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Sell-through</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{rollup.sellThroughRate}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury capture</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{rollup.treasuryCaptureRate}%</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">Avg listed value</p>
+                          <p className="mt-2 text-sm font-semibold text-white">${rollup.averageProjectedValue.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">Avg realized order</p>
+                          <p className="mt-2 text-sm font-semibold text-white">${rollup.averageRealizedOrderValue.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-[#d4af37]">Routing quality</p>
+                          <p className="mt-2 text-sm font-semibold text-white">
+                            {rollup.sellThroughRate >= 100 ? 'High demand route' : rollup.sellThroughRate >= 50 ? 'Active route' : 'Build demand'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {treasuryRollups ? (
+              <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
+                <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Storefront performance</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Which pillars are converting into treasury flow</h2>
+                <p className="mt-3 text-sm leading-7 text-white/66">
+                  This view keeps Phase 5 grounded in actual storefront behavior. We can see which community-owned pillars have listing depth, which ones are converting into sales activity, and where treasury capture is strongest.
+                </p>
+                <div className="mt-5 space-y-3">
+                  {treasuryRollups.pillarPerformance.map((pillar) => (
+                    <article key={pillar.pillarLabel} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{pillar.pillarLabel}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">
+                            {pillar.liveOfferCount} live offers | {pillar.realizedOrderCount} realized orders
+                          </p>
+                        </div>
+                        <div className="grid gap-2 text-right text-xs text-white/62 sm:grid-cols-4 sm:text-left">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Projected</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${pillar.projectedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Realized</p>
+                            <p className="mt-1 text-sm font-semibold text-white">${pillar.realizedGrossValue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Sell-through</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{pillar.sellThroughRate}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-[#d4af37]">Treasury capture</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{pillar.treasuryCaptureRate}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
+              <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Routing preview</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">Live storefront offers grouped by split rule</h2>
+              <p className="mt-3 text-sm leading-7 text-white/66">
+                This shows how published community offers are currently routed before any new sales land. It gives ops a treasury-first view of storefront intent, not just past ledger events.
+              </p>
+              <div className="mt-5 space-y-4">
+                {Object.entries(storefrontGroups).map(([group, items]) => (
+                  <div key={group} className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{group}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#d4af37]">{items.length} live storefront offers</p>
+                      </div>
+                      <span className="rounded-full border border-[#d4af37]/20 bg-[#d4af37]/10 px-3 py-1 text-xs text-[#f3ddb1]">
+                        Routing preview
+                      </span>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {items.map((item) => (
+                        <div key={item.id} className="rounded-[18px] border border-white/10 bg-[#111111] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-white">{item.title}</p>
+                              <p className="mt-1 text-xs text-white/60">{item.pillarLabel} | {item.priceLabel}</p>
+                            </div>
+                            <Link href={item.href} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white hover:border-[#d4af37]/35">
+                              Open offer detail
+                            </Link>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/65">
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{item.status || 'Active'}</span>
+                            {item.availabilityLabel ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{item.availabilityLabel}</span> : null}
+                            {item.ownerProfileSlug ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">Owner: {item.ownerProfileSlug}</span> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-[32px] border border-white/10 bg-[#111111] p-6">
               <p className="text-xs uppercase tracking-[0.22em] text-[#d4af37]">Featured support goals</p>
               <div className="mt-4 space-y-4">

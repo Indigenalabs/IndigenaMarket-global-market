@@ -101,11 +101,13 @@ function SimpleQuestionCard({
 export default function QuickCreateClient({
   pillar,
   embedded = false,
-  simpleMode = false
+  simpleMode = false,
+  accountSlug
 }: {
   pillar: string;
   embedded?: boolean;
   simpleMode?: boolean;
+  accountSlug?: string;
 }) {
   const config = PILLAR_CONFIG[pillar as keyof typeof PILLAR_CONFIG];
   const storageKey = useMemo(() => `indigena_quick_create_${pillar}`, [pillar]);
@@ -280,6 +282,7 @@ export default function QuickCreateClient({
                 }
                 const result = await createQuickProfileDraft({
                   slug: profileSlug,
+                  accountSlug,
                   pillar: pillar as keyof typeof PILLAR_CONFIG,
                   fields: values
                 });

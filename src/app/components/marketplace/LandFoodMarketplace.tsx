@@ -37,6 +37,8 @@ import {
   formatPlacementPrice,
   type PlacementSummaryEntry
 } from '@/app/lib/pillarPlacementController';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
+import { fetchCommunityMarketplaceOffers, type CommunityMarketplaceOffer } from '@/app/lib/communityMarketplaceApi';
 
 type Mode = 'products' | 'projects' | 'services';
 type FeedEntry =
@@ -59,6 +61,7 @@ export default function LandFoodMarketplace() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<'api' | 'mock'>('mock');
+  const [communityOffers, setCommunityOffers] = useState<CommunityMarketplaceOffer[]>([]);
 
   const [summaryMap, setSummaryMap] = useState<Record<string, PlacementSummaryEntry>>({});
   const [creativeMap, setCreativeMap] = useState<Record<string, { image: string; headline: string; subheadline: string; cta: string }>>({});
@@ -116,6 +119,20 @@ export default function LandFoodMarketplace() {
       controller.abort();
     };
   }, [apiQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCommunityMarketplaceOffers({ pillar: 'land-food', search: queryText || undefined })
+      .then((offers) => {
+        if (!cancelled) setCommunityOffers(offers.slice(0, 3));
+      })
+      .catch(() => {
+        if (!cancelled) setCommunityOffers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queryText]);
 
   useEffect(() => {
     const loadPlacements = async () => {
@@ -347,6 +364,9 @@ export default function LandFoodMarketplace() {
             }
             return <ProductCard key={entry.product.id} item={entry.product} />;
           })}
+          {communityOffers.slice(0, 2).map((offer) => (
+            <CommunityMarketplaceCard key={`land-food-product-${offer.id}`} offer={offer} mode="mixed" className="h-full" />
+          ))}
           {!loading && !error && mappedProducts.length === 0 ? (
             <article className="md:col-span-2 xl:col-span-3 rounded-xl border border-white/15 bg-black/25 p-6 text-center">
               <p className="text-base font-semibold text-white">No products match your filters</p>
@@ -359,6 +379,9 @@ export default function LandFoodMarketplace() {
       {mode === 'projects' ? (
         <section className="grid gap-4 md:grid-cols-2">
           {mappedProjects.map((item: ConservationProject) => <ProjectCard key={item.id} item={item} />)}
+          {communityOffers.slice(0, 1).map((offer) => (
+            <CommunityMarketplaceCard key={`land-food-project-${offer.id}`} offer={offer} mode="mixed" className="h-full" />
+          ))}
           {!loading && !error && mappedProjects.length === 0 ? (
             <article className="md:col-span-2 rounded-xl border border-white/15 bg-black/25 p-6 text-center">
               <p className="text-base font-semibold text-white">No conservation projects match your filters</p>
@@ -371,6 +394,9 @@ export default function LandFoodMarketplace() {
       {mode === 'services' ? (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {mappedServices.map((item: StewardshipService) => <ServiceCard key={item.id} item={item} />)}
+          {communityOffers.slice(0, 2).map((offer) => (
+            <CommunityMarketplaceCard key={`land-food-service-${offer.id}`} offer={offer} mode="mixed" className="h-full" />
+          ))}
           {!loading && !error && mappedServices.length === 0 ? (
             <article className="md:col-span-2 xl:col-span-3 rounded-xl border border-white/15 bg-black/25 p-6 text-center">
               <p className="text-base font-semibold text-white">No stewardship services match your filters</p>

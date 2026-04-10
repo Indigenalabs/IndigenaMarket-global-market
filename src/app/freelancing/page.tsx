@@ -11,6 +11,9 @@ import {
 import Sidebar from '../components/Sidebar';
 import ServiceDetailModal from '../components/marketplace/freelancing/ServiceDetailModal';
 import SponsoredServiceCard from '../components/marketplace/freelancing/SponsoredServiceCard';
+import CommunityMarketplaceExplorer from '@/app/components/community/CommunityMarketplaceExplorer';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
+import { fetchCommunityMarketplaceOffers, type CommunityMarketplaceOffer } from '@/app/lib/communityMarketplaceApi';
 
 // Category definitions - 16 Indigenous Service Categories
 const categories = [
@@ -1183,6 +1186,7 @@ export default function FreelancingViewAll() {
   const [selectedService, setSelectedService] = useState<typeof allServices[0] | null>(null);
   const [savedServices, setSavedServices] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(12);
+  const [communityOffers, setCommunityOffers] = useState<CommunityMarketplaceOffer[]>([]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1193,6 +1197,20 @@ export default function FreelancingViewAll() {
     setSelectedService(deepLinkedService);
   }, []);
   const categoryScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCommunityMarketplaceOffers({ pillar: 'freelancing', search: searchQuery || undefined })
+      .then((offers) => {
+        if (!cancelled) setCommunityOffers(offers);
+      })
+      .catch(() => {
+        if (!cancelled) setCommunityOffers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery]);
 
   // Filter and sort services
   const filteredServices = useMemo(() => {
@@ -1238,6 +1256,7 @@ export default function FreelancingViewAll() {
   }, [activeCategory, searchQuery, sortBy, selectedPriceRange, verificationFilter]);
 
   const visibleServices = filteredServices.slice(0, visibleCount);
+  const visibleCommunityOffers = useMemo(() => communityOffers.slice(0, 2), [communityOffers]);
   const hasMore = filteredServices.length > visibleCount;
 
   const handlePillarChange = (pillarId: string) => {
@@ -1354,6 +1373,13 @@ export default function FreelancingViewAll() {
               </button>
             </div>
           </div>
+
+          <CommunityMarketplaceExplorer
+            pillar="freelancing"
+            title="Community-owned service offers"
+            subtitle="Community storefront consulting, creative, language, and advisory offers now surface inside the public freelancing marketplace with treasury-routing facets attached."
+            emptyLabel="No community-owned service offers match the current marketplace facets."
+          />
 
           {/* Category Tabs with Scroll */}
           <div className="relative mb-6">
@@ -1544,8 +1570,29 @@ export default function FreelancingViewAll() {
                   {(idx + 1) % 6 === 0 && idx < visibleServices.length - 1 && (
                     <SponsoredServiceCard key={`sponsored-${idx}`} />
                   )}
+                  {(idx === 1 || (visibleServices.length === 1 && idx === 0)) && visibleCommunityOffers[0] ? (
+                    <CommunityMarketplaceCard
+                      key={`freelancing-community-${visibleCommunityOffers[0].id}`}
+                      offer={visibleCommunityOffers[0]}
+                      mode="mixed"
+                      className="h-full"
+                    />
+                  ) : null}
+                  {idx === 7 && visibleCommunityOffers[1] ? (
+                    <CommunityMarketplaceCard
+                      key={`freelancing-community-${visibleCommunityOffers[1].id}`}
+                      offer={visibleCommunityOffers[1]}
+                      mode="mixed"
+                      className="h-full"
+                    />
+                  ) : null}
                 </div>
               ))}
+              {visibleServices.length === 0
+                ? visibleCommunityOffers.map((offer) => (
+                    <CommunityMarketplaceCard key={`freelancing-community-empty-${offer.id}`} offer={offer} mode="mixed" className="h-full" />
+                  ))
+                : null}
             </div>
           )}
 

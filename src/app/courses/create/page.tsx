@@ -21,9 +21,15 @@ import {
 import { requireWalletAction } from '@/app/lib/requireWalletAction';
 import SimpleModeDock from '@/app/components/SimpleModeDock';
 import VoiceInputButton from '@/app/components/VoiceInputButton';
+import CommunityStorefrontBanner from '@/app/components/community/CommunityStorefrontBanner';
+import CommunitySplitRulePicker from '@/app/components/community/CommunitySplitRulePicker';
 import { resolveCurrentCreatorProfileSlug } from '@/app/lib/accountAuthClient';
-import { fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
+import { appendAccountSlugToHref } from '@/app/lib/communityStorefrontState';
+import { extractCommunitySplitRuleId } from '@/app/lib/communityPublishing';
+import { fetchPlatformAccount } from '@/app/lib/platformAccountsApi';
+import { createProfileOffering, fetchPublicProfile, updateProfileOffering } from '@/app/lib/profileApi';
 import type { ProfileOffering } from '@/app/profile/data/profileShowcase';
+import type { RevenueSplitRuleRecord } from '@/app/lib/platformAccounts';
 
 // â”€â”€ 12 Course Category Definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Shared Pillar 3 category catalog
@@ -593,6 +599,8 @@ function CourseCreationPageContent() {
   const simpleMode = searchParams.get('simple') === '1';
   const editOfferingId = searchParams.get('edit') || '';
   const requestedProfileSlug = searchParams.get('slug') || '';
+  const accountSlug = searchParams.get('accountSlug') || '';
+  const returnToHref = appendAccountSlugToHref(returnTo, accountSlug || undefined);
   const [profileSlug, setProfileSlug] = useState(requestedProfileSlug);
   const [mirrorOffering, setMirrorOffering] = useState<ProfileOffering | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'basics' | 'curriculum' | 'media' | 'pricing' | 'settings'>(simpleMode ? 'basics' : 'dashboard');
@@ -632,6 +640,10 @@ function CourseCreationPageContent() {
   const [verificationTier, setVerificationTier] = useState('Bronze');
   const [isFree, setIsFree] = useState(false);
   const [currentCourseId, setCurrentCourseId] = useState('');
+  const [currentMirrorOfferingId, setCurrentMirrorOfferingId] = useState(editOfferingId);
+  const [communitySplitRules, setCommunitySplitRules] = useState<RevenueSplitRuleRecord[]>([]);
+  const [selectedSplitRuleId, setSelectedSplitRuleId] = useState('');
+  const [communityLabel, setCommunityLabel] = useState('');
   const [workflowStatus, setWorkflowStatus] = useState<'draft' | 'under_review' | 'published'>('draft');
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -663,6 +675,7 @@ function CourseCreationPageContent() {
         const offering = data.profile.offerings.find((entry) => entry.id === editOfferingId);
         if (!offering) return;
         setMirrorOffering(offering);
+        setCurrentMirrorOfferingId(offering.id);
         setCourseTitle(offering.title || '');
         setCourseSubtitle(offering.type || '');
         setCourseDescription(offering.blurb || '');
@@ -674,6 +687,33 @@ function CourseCreationPageContent() {
       cancelled = true;
     };
   }, [editOfferingId, profileSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountSlug) {
+      setCommunitySplitRules([]);
+      setSelectedSplitRuleId('');
+      setCommunityLabel('');
+      return;
+    }
+    fetchPlatformAccount(accountSlug)
+      .then((detail) => {
+        if (cancelled) return;
+        const activeRules = detail.splitRules.filter((entry) => entry.status === 'active');
+        const existingRuleId = extractCommunitySplitRuleId(mirrorOffering?.metadata);
+        setCommunitySplitRules(activeRules);
+        setCommunityLabel(detail.account.displayName);
+        setSelectedSplitRuleId((current) => current || existingRuleId || activeRules[0]?.id || '');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommunitySplitRules([]);
+        setCommunityLabel('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSlug, mirrorOffering?.metadata]);
 
   // Refs
   const thumbnailRef = useRef<HTMLInputElement>(null);
@@ -863,13 +903,13 @@ const buildCoursePayload = (creatorAddress: string) => {
     status: string,
     overrides?: Partial<Pick<ProfileOffering, 'availabilityLabel' | 'availabilityTone' | 'ctaMode'>>
   ) => {
-    if (!editOfferingId) return;
     const activeProfileSlug = profileSlug || (await resolveCurrentCreatorProfileSlug());
     if (!activeProfileSlug) return;
     if (!profileSlug) setProfileSlug(activeProfileSlug);
-    await updateProfileOffering({
+    const nextPayload = {
       slug: activeProfileSlug,
-      offeringId: editOfferingId,
+      accountSlug: accountSlug || undefined,
+      splitRuleId: selectedSplitRuleId || undefined,
       title: courseTitle.trim(),
       blurb: courseDescription.trim(),
       priceLabel: isFree ? 'Free' : `INDI ${Number(price || 0).toFixed(0)}`,
@@ -884,7 +924,26 @@ const buildCoursePayload = (creatorAddress: string) => {
       availabilityLabel: overrides?.availabilityLabel || mirrorOffering?.availabilityLabel || 'Enrollment open',
       availabilityTone: overrides?.availabilityTone || mirrorOffering?.availabilityTone || 'success',
       featured: mirrorOffering?.featured ?? false
+    } as const;
+    if (currentMirrorOfferingId) {
+      await updateProfileOffering({
+        offeringId: currentMirrorOfferingId,
+        ...nextPayload
+      });
+      return;
+    }
+    const created = await createProfileOffering({
+      ...nextPayload,
+      pillar: 'courses',
+      pillarLabel: 'Courses',
+      icon: '📚',
+      offeringType: level || 'Course',
+      image: thumbnailPreview || '',
+      href: appendAccountSlugToHref('/courses', accountSlug || undefined),
+      metadata: ['Created in Courses studio']
     });
+    setCurrentMirrorOfferingId(created.offeringId);
+    setMirrorOffering(created.offering as ProfileOffering);
   };
 
   const handleSaveDraft = async (): Promise<string> => {
@@ -1019,7 +1078,7 @@ const buildCoursePayload = (creatorAddress: string) => {
       <header className={`${simpleMode ? 'mx-auto mt-8 w-full max-w-5xl rounded-[28px] border border-[#d4af37]/20 bg-[#101010] px-6 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.35)]' : 'bg-[#141414] border-b border-[#d4af37]/20 px-6 py-4'} flex-shrink-0`}>
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href={returnTo} className="flex items-center gap-2 text-gray-400 hover:text-[#d4af37] transition-colors">
+              <Link href={returnToHref} className="flex items-center gap-2 text-gray-400 hover:text-[#d4af37] transition-colors">
                 <ChevronLeft size={20} />
                 <span className="text-sm">{simpleMode ? 'Back to simple home' : 'Back to Creator Hub'}</span>
               </Link>
@@ -1071,6 +1130,19 @@ const buildCoursePayload = (creatorAddress: string) => {
         </header>
 
         <div className={`flex flex-1 ${simpleMode ? 'mx-auto mt-6 w-full max-w-5xl flex-col overflow-visible px-4 pb-12 sm:px-0' : 'overflow-hidden'}`}>
+          <div className={`${simpleMode ? 'mb-6' : 'm-6 mb-0'}`}>
+            <CommunityStorefrontBanner accountSlug={accountSlug || undefined} returnTo={returnToHref} />
+            {accountSlug ? (
+              <div className="mt-4">
+                <CommunitySplitRulePicker
+                  accountLabel={communityLabel}
+                  splitRules={communitySplitRules}
+                  selectedSplitRuleId={selectedSplitRuleId}
+                  onSelect={setSelectedSplitRuleId}
+                />
+              </div>
+            ) : null}
+          </div>
           {/* Left Nav */}
           <div className={`${simpleMode ? 'w-full rounded-2xl border border-[#d4af37]/20 bg-[#101010] p-3' : 'w-56 bg-[#141414] border-r border-[#d4af37]/20 flex flex-col flex-shrink-0'}`}>
             <nav className={`${simpleMode ? 'flex gap-2 overflow-x-auto' : 'p-3 space-y-1 flex-1'}`}>
