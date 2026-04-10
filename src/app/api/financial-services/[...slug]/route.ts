@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createBnplApplication, listFinancialServices, purchaseTaxReport, requestInstantPayout } from '@/app/lib/financialServices';
 import { ensureFinancialServiceAccess, recordGovernanceAuditEvent } from '@/app/lib/complianceGovernance';
-import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestIdentity';
+import { resolveRequestActorId, resolveRequestIdentity, resolveRequestWallet } from '@/app/lib/requestIdentity';
 
 function text(value: unknown) { return typeof value === 'string' ? value.trim() : ''; }
 function numberValue(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
@@ -16,6 +16,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ slug: 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const { slug = [] } = await params;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const identity = await resolveRequestIdentity(req).catch(() => null);
   const actorId = resolveRequestActorId(req);
   const walletAddress = resolveRequestWallet(req);
   if (actorId === 'guest') {
@@ -23,8 +24,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   }
   if (slug[0] === 'instant-payout') {
     await ensureFinancialServiceAccess({ actorId, walletAddress, service: 'instant-payout' });
-    const payout = await requestInstantPayout({ actorId, walletAddress: walletAddress || text(body.walletAddress), amount: numberValue(body.amount) });
-    await recordGovernanceAuditEvent({ actorId, domain: 'financial-services', action: 'instant-payout-requested', targetId: payout.id, metadata: { amount: payout.amount, feeAmount: payout.feeAmount } });
+    const payout = await requestInstantPayout({
+      actorId,
+      walletAddress: walletAddress || text(body.walletAddress),
+      amount: numberValue(body.amount),
+      profileSlug: text(body.profileSlug),
+      destinationId: text(body.destinationId),
+      note: text(body.note)
+    });
+    await recordGovernanceAuditEvent({
+      actorId,
+      domain: 'financial-services',
+      action: 'instant-payout-requested',
+      targetId: payout.id,
+      metadata: {
+        amount: payout.amount,
+        feeAmount: payout.feeAmount,
+        destinationId: payout.destinationId,
+        destinationType: payout.destinationType,
+        riskLevel: payout.riskLevel,
+        reviewReason: payout.reviewReason,
+        email: identity?.email || ''
+      }
+    });
     return NextResponse.json({ data: { payout } }, { status: 201 });
   }
   if (slug[0] === 'bnpl') {
@@ -41,6 +63,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   }
   return NextResponse.json({ message: 'Unsupported financial services endpoint' }, { status: 404 });
 }
-
-
 

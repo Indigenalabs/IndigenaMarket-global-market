@@ -112,6 +112,7 @@ export async function listFiatPayoutDestinations(input: { actorId: string; profi
     if (error && !shouldFallback(error)) throw error;
   }
   const runtime = await readRuntime();
+  if (!actorId && !profileSlug) return runtime;
   return runtime.filter((row) => row.actorId === actorId || (!!profileSlug && row.profileSlug === profileSlug));
 }
 

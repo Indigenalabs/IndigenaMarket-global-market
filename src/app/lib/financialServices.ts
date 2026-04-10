@@ -5,16 +5,33 @@ import { assertRuntimePersistenceAllowed } from '@/app/lib/runtimePersistence';
 import { listIndiWithdrawalRequests, updateIndiWithdrawalRequestStatus, type IndiWithdrawalRequest, type IndiWithdrawalStatus } from '@/app/lib/indiWithdrawalRequests';
 import { listAllFinanceLedgerEntries, listFinanceLedgerEntriesByOrderId, updateFinanceLedgerEntryStatus, type FinanceLedgerEntry, type FinanceLedgerStatus } from '@/app/lib/financeLedger';
 import { listDigitalArtOrders, updateDigitalArtOrderStatus, type DigitalArtOrderRecord, type DigitalArtOrderStatus } from '@/app/lib/digitalArtOrders';
+import { getComplianceProfile, type ComplianceProfileRecord } from '@/app/lib/complianceGovernance';
+import { listFiatPayoutDestinations, type FiatPayoutDestinationRecord, type FiatPayoutDestinationStatus, type FiatPayoutDestinationType } from '@/app/lib/fiatRails';
+
+export type InstantPayoutStatus = 'requested' | 'queued' | 'reviewing' | 'processing' | 'paid' | 'failed' | 'cancelled';
+export type InstantPayoutRiskLevel = 'low' | 'medium' | 'high';
 
 export interface InstantPayoutRequest {
   id: string;
   actorId: string;
+  profileSlug: string;
   walletAddress: string;
   amount: number;
   feeAmount: number;
   netAmount: number;
-  status: 'requested' | 'processing' | 'paid' | 'failed';
+  status: InstantPayoutStatus;
+  destinationId: string;
+  destinationLabel: string;
+  destinationType: FiatPayoutDestinationType;
+  destinationLast4: string;
+  destinationStatus: FiatPayoutDestinationStatus;
+  riskLevel: InstantPayoutRiskLevel;
+  reviewReason: string;
+  reserveHoldAmount: number;
+  note: string;
+  metadata: Record<string, unknown>;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface BnplApplication {
@@ -157,6 +174,134 @@ function toSourceLabel(sourceType: string) {
   return 'Settlement';
 }
 
+function asObject(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function asText(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function shouldFallback(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const code = asText((error as Record<string, unknown>).code);
+  const message = asText((error as Record<string, unknown>).message).toLowerCase();
+  return (
+    code === '42P01' ||
+    code === '42703' ||
+    code === 'PGRST205' ||
+    code === 'PGRST204' ||
+    message.includes('schema cache') ||
+    message.includes('does not exist') ||
+    message.includes('column')
+  );
+}
+
+function mapPayoutRow(row: Record<string, unknown>): InstantPayoutRequest {
+  return {
+    id: asText(row.id),
+    actorId: asText(row.actor_id || row.actorId),
+    profileSlug: asText(row.profile_slug || row.profileSlug),
+    walletAddress: asText(row.wallet_address || row.walletAddress),
+    amount: Number(row.amount || 0),
+    feeAmount: Number(row.fee_amount || row.feeAmount || 0),
+    netAmount: Number(row.net_amount || row.netAmount || 0),
+    status: asText(row.status, 'requested') as InstantPayoutStatus,
+    destinationId: asText(row.destination_id || row.destinationId),
+    destinationLabel: asText(row.destination_label || row.destinationLabel),
+    destinationType: asText(row.destination_type || row.destinationType, 'manual_review') as FiatPayoutDestinationType,
+    destinationLast4: asText(row.destination_last4 || row.destinationLast4),
+    destinationStatus: asText(row.destination_status || row.destinationStatus, 'draft') as FiatPayoutDestinationStatus,
+    riskLevel: asText(row.risk_level || row.riskLevel, 'low') as InstantPayoutRiskLevel,
+    reviewReason: asText(row.review_reason || row.reviewReason),
+    reserveHoldAmount: Number(row.reserve_hold_amount || row.reserveHoldAmount || 0),
+    note: asText(row.note),
+    metadata: asObject(row.metadata),
+    createdAt: asText(row.created_at || row.createdAt),
+    updatedAt: asText(row.updated_at || row.updatedAt || row.created_at || row.createdAt)
+  };
+}
+
+function mergePayoutSupplement(base: InstantPayoutRequest, supplement: InstantPayoutRequest | undefined) {
+  if (!supplement) return base;
+  return {
+    ...supplement,
+    ...base,
+    profileSlug: base.profileSlug || supplement.profileSlug,
+    destinationId: base.destinationId || supplement.destinationId,
+    destinationLabel: base.destinationLabel || supplement.destinationLabel,
+    destinationType: base.destinationType || supplement.destinationType,
+    destinationLast4: base.destinationLast4 || supplement.destinationLast4,
+    destinationStatus: base.destinationStatus || supplement.destinationStatus,
+    riskLevel: base.riskLevel !== 'low' || !supplement.riskLevel ? base.riskLevel : supplement.riskLevel,
+    reviewReason: base.reviewReason || supplement.reviewReason,
+    reserveHoldAmount: base.reserveHoldAmount || supplement.reserveHoldAmount,
+    note: base.note || supplement.note,
+    metadata: Object.keys(base.metadata || {}).length > 0 ? { ...(supplement.metadata || {}), ...(base.metadata || {}) } : supplement.metadata,
+    updatedAt: base.updatedAt || supplement.updatedAt
+  };
+}
+
+async function upsertRuntimePayoutSupplement(record: InstantPayoutRequest) {
+  const runtime = await readRuntime();
+  runtime.payouts = [record, ...runtime.payouts.filter((entry) => entry.id !== record.id)];
+  await writeRuntime(runtime);
+}
+
+function choosePayoutDestination(destinations: FiatPayoutDestinationRecord[], destinationId: string) {
+  if (destinationId) {
+    const selected = destinations.find((entry) => entry.id === destinationId);
+    if (!selected) throw new Error('The selected payout destination was not found for this account.');
+    return selected;
+  }
+  return destinations.find((entry) => entry.isDefault) || destinations.find((entry) => entry.status === 'ready') || destinations[0] || null;
+}
+
+function derivePayoutRouting(input: {
+  amount: number;
+  destination: FiatPayoutDestinationRecord;
+  complianceProfile: ComplianceProfileRecord | null;
+}) {
+  const amount = Number(input.amount || 0);
+  const reasons: string[] = [];
+  let riskLevel: InstantPayoutRiskLevel = 'low';
+  let status: InstantPayoutStatus = 'requested';
+  let reserveHoldAmount = 0;
+
+  if (input.destination.status !== 'ready') {
+    riskLevel = 'high';
+    status = 'reviewing';
+    reserveHoldAmount = amount;
+    reasons.push('destination_review_required');
+  }
+
+  if (input.complianceProfile?.kycStatus !== 'approved' || input.complianceProfile?.amlStatus !== 'approved') {
+    riskLevel = 'high';
+    status = 'reviewing';
+    reserveHoldAmount = amount;
+    reasons.push('compliance_reapproval_required');
+  }
+
+  if (amount >= 2500) {
+    riskLevel = 'high';
+    status = 'reviewing';
+    reserveHoldAmount = Math.max(reserveHoldAmount, Math.round(amount * 0.15 * 100) / 100);
+    reasons.push('high_amount_threshold');
+  } else if (amount >= 1000) {
+    if (riskLevel !== 'high') riskLevel = 'medium';
+    if (status === 'requested') status = 'queued';
+    reserveHoldAmount = Math.max(reserveHoldAmount, Math.round(amount * 0.05 * 100) / 100);
+    reasons.push('enhanced_review_threshold');
+  }
+
+  return {
+    riskLevel,
+    status,
+    reserveHoldAmount,
+    reviewReason: reasons.join(', ')
+  };
+}
+
 const RUNTIME_DIR = path.join(process.cwd(), '.runtime');
 const FILE = path.join(RUNTIME_DIR, 'financial-services.json');
 
@@ -168,7 +313,7 @@ async function readRuntime(): Promise<FinancialServicesDashboard> {
   try {
     const parsed = JSON.parse(raw) as Partial<FinancialServicesDashboard>;
     return {
-      payouts: Array.isArray(parsed.payouts) ? parsed.payouts : [],
+      payouts: Array.isArray(parsed.payouts) ? parsed.payouts.map((row) => mapPayoutRow(row as unknown as Record<string, unknown>)) : [],
       bnplApplications: Array.isArray(parsed.bnplApplications) ? parsed.bnplApplications : [],
       taxReports: Array.isArray(parsed.taxReports) ? parsed.taxReports : [],
       indiWithdrawals: Array.isArray(parsed.indiWithdrawals) ? parsed.indiWithdrawals : [],
@@ -284,11 +429,11 @@ function buildOrderReconciliation(input: {
 }
 
 export async function listFinancialServices() {
+  const runtime = await readRuntime();
   const fallbackRoyalties = await listAllFinanceLedgerEntries();
   const fallbackWithdrawals = await listIndiWithdrawalRequests({ actorId: '', profileSlug: '' });
   const fallbackMarketplaceOrders = await listDigitalArtOrders({ includeAll: true });
   if (!isSupabaseServerConfigured()) {
-    const runtime = await readRuntime();
     const royalties = fallbackRoyalties.filter((entry) => ['sale', 'royalty'].includes(entry.type));
     const indiWithdrawals = fallbackWithdrawals;
     const marketplaceOrders = fallbackMarketplaceOrders;
@@ -387,7 +532,11 @@ export async function listFinancialServices() {
       }))
     : fallbackMarketplaceOrders;
   return {
-    payouts: (payouts.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, walletAddress: row.wallet_address, amount: Number(row.amount || 0), feeAmount: Number(row.fee_amount || 0), netAmount: Number(row.net_amount || 0), status: row.status, createdAt: row.created_at })),
+    payouts: (payouts.data || []).map((row: any) => {
+      const mapped = mapPayoutRow(row);
+      const supplement = runtime.payouts.find((entry) => entry.id === mapped.id);
+      return mergePayoutSupplement(mapped, supplement);
+    }),
     bnplApplications: (bnplApplications.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, orderId: row.order_id, amount: Number(row.amount || 0), partner: row.partner, feeAmount: Number(row.fee_amount || 0), status: row.status, createdAt: row.created_at })),
     taxReports: (taxReports.data || []).map((row: any) => ({ id: row.id, actorId: row.actor_id, taxYear: Number(row.tax_year || new Date().getUTCFullYear()), feeAmount: Number(row.fee_amount || 25), status: row.status, createdAt: row.created_at })),
     indiWithdrawals: mappedWithdrawals,
@@ -401,15 +550,107 @@ export async function listFinancialServices() {
   };
 }
 
-export async function requestInstantPayout(input: { actorId: string; walletAddress: string; amount: number; }) {
-  const feeAmount = Math.round(Number(input.amount || 0) * 0.01 * 100) / 100;
-  const record: InstantPayoutRequest = { id: `po-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, actorId: input.actorId, walletAddress: input.walletAddress, amount: Number(input.amount || 0), feeAmount, netAmount: Math.max(Number(input.amount || 0) - feeAmount, 0), status: 'requested', createdAt: new Date().toISOString() };
+export async function requestInstantPayout(input: {
+  actorId: string;
+  walletAddress: string;
+  amount: number;
+  profileSlug?: string;
+  destinationId?: string;
+  note?: string;
+}) {
+  const amount = Number(input.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid payout amount.');
+
+  const profileSlug = String(input.profileSlug || '').trim();
+  const destinations = await listFiatPayoutDestinations({ actorId: input.actorId, profileSlug });
+  if (destinations.length === 0) {
+    throw new Error('Save a payout destination before requesting an instant payout.');
+  }
+
+  const destination = choosePayoutDestination(destinations, String(input.destinationId || '').trim());
+  if (!destination) throw new Error('No payout destination is available for this account.');
+
+  const complianceProfile = await getComplianceProfile(input.actorId, input.walletAddress || '');
+  const routing = derivePayoutRouting({ amount, destination, complianceProfile });
+  const feeAmount = Math.round(amount * 0.01 * 100) / 100;
+  const now = new Date().toISOString();
+  const record: InstantPayoutRequest = {
+    id: `po-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    actorId: input.actorId,
+    profileSlug,
+    walletAddress: input.walletAddress,
+    amount,
+    feeAmount,
+    netAmount: Math.max(amount - feeAmount - routing.reserveHoldAmount, 0),
+    status: routing.status,
+    destinationId: destination.id,
+    destinationLabel: destination.label,
+    destinationType: destination.destinationType,
+    destinationLast4: destination.last4,
+    destinationStatus: destination.status,
+    riskLevel: routing.riskLevel,
+    reviewReason: routing.reviewReason,
+    reserveHoldAmount: routing.reserveHoldAmount,
+    note: String(input.note || '').trim(),
+    metadata: {
+      destinationCurrency: destination.currency,
+      destinationCountryCode: destination.countryCode,
+      destinationInstitutionName: destination.institutionName,
+      complianceKycStatus: complianceProfile?.kycStatus || 'pending',
+      complianceAmlStatus: complianceProfile?.amlStatus || 'pending',
+      payoutEnabled: Boolean(complianceProfile?.payoutEnabled),
+      savedFrom: String(destination.metadata?.savedFrom || ''),
+      destinationMetadata: destination.metadata || {}
+    },
+    createdAt: now,
+    updatedAt: now
+  };
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();
-    await supabase.from('finance_instant_payout_requests').insert({ id: record.id, actor_id: record.actorId, wallet_address: record.walletAddress, amount: record.amount, fee_amount: record.feeAmount, net_amount: record.netAmount, status: record.status, created_at: record.createdAt });
+    const enrichedInsert = await supabase.from('finance_instant_payout_requests').insert({
+      id: record.id,
+      actor_id: record.actorId,
+      profile_slug: record.profileSlug || null,
+      wallet_address: record.walletAddress,
+      amount: record.amount,
+      fee_amount: record.feeAmount,
+      net_amount: record.netAmount,
+      status: record.status,
+      destination_id: record.destinationId || null,
+      destination_label: record.destinationLabel || null,
+      destination_type: record.destinationType,
+      destination_last4: record.destinationLast4 || null,
+      destination_status: record.destinationStatus,
+      risk_level: record.riskLevel,
+      review_reason: record.reviewReason || null,
+      reserve_hold_amount: record.reserveHoldAmount,
+      note: record.note || null,
+      metadata: record.metadata,
+      created_at: record.createdAt,
+      updated_at: record.updatedAt
+    });
+    if (enrichedInsert.error && !shouldFallback(enrichedInsert.error)) throw enrichedInsert.error;
+    if (!enrichedInsert.error) {
+      await upsertRuntimePayoutSupplement(record);
+      return record;
+    }
+
+    const fallbackInsert = await supabase.from('finance_instant_payout_requests').insert({
+      id: record.id,
+      actor_id: record.actorId,
+      wallet_address: record.walletAddress,
+      amount: record.amount,
+      fee_amount: record.feeAmount,
+      net_amount: record.netAmount,
+      status: record.status,
+      created_at: record.createdAt
+    });
+    if (fallbackInsert.error) throw fallbackInsert.error;
+    await upsertRuntimePayoutSupplement(record);
     return record;
   }
-  const state = await readRuntime(); state.payouts.unshift(record); await writeRuntime(state); return record;
+  await upsertRuntimePayoutSupplement(record);
+  return record;
 }
 
 export async function createBnplApplication(input: { actorId: string; orderId: string; amount: number; }) {
@@ -436,13 +677,23 @@ export async function updateInstantPayoutStatus(id: string, status: InstantPayou
   const state = await listFinancialServices();
   const current = state.payouts.find((entry) => entry.id === id);
   if (!current) throw new Error('Instant payout request not found.');
-  const updated = { ...current, status };
+  const updated = { ...current, status, updatedAt: new Date().toISOString() };
   if (isSupabaseServerConfigured()) {
     const supabase = createSupabaseServerClient();
-    await supabase.from('finance_instant_payout_requests').update({ status }).eq('id', id);
+    const enrichedUpdate = await supabase.from('finance_instant_payout_requests').update({ status, updated_at: updated.updatedAt }).eq('id', id);
+    if (enrichedUpdate.error && !shouldFallback(enrichedUpdate.error)) throw enrichedUpdate.error;
+    if (!enrichedUpdate.error) {
+      await upsertRuntimePayoutSupplement(updated);
+      return updated;
+    }
+
+    const fallbackUpdate = await supabase.from('finance_instant_payout_requests').update({ status }).eq('id', id);
+    if (fallbackUpdate.error) throw fallbackUpdate.error;
+    await upsertRuntimePayoutSupplement(updated);
     return updated;
   }
-  const runtime = await readRuntime(); runtime.payouts = runtime.payouts.map((entry) => entry.id === id ? updated : entry); await writeRuntime(runtime); return updated;
+  await upsertRuntimePayoutSupplement(updated);
+  return updated;
 }
 
 export async function updateBnplStatus(id: string, status: BnplApplication['status']) {
@@ -580,14 +831,14 @@ export function buildFinancialAuditHistory(data: FinancialServicesDashboard): Fi
     entity: 'payout',
     entityId: entry.id,
     pillar: 'platform-finance',
-    title: entry.walletAddress,
+    title: entry.destinationLabel || entry.walletAddress,
     status: entry.status,
     actorId: entry.actorId,
     sourceReference: entry.id,
     amount: entry.netAmount,
     currency: 'USD',
-    note: 'Instant payout queue update',
-    occurredAt: entry.createdAt
+    note: entry.reviewReason ? `Instant payout queue update (${entry.reviewReason})` : 'Instant payout queue update',
+    occurredAt: entry.updatedAt || entry.createdAt
   }));
 
   const withdrawalEntries: FinancialAuditHistoryEntry[] = data.indiWithdrawals.map((entry) => ({
