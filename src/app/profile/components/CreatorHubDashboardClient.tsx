@@ -35,6 +35,7 @@ import {
   Truck,
   TrendingUp,
   Upload,
+  Users,
   Wallet,
   WifiOff,
   Wrench
@@ -59,6 +60,7 @@ import {
   saveProfileBundle,
   sendProfileMessage,
   startVerificationCheckout,
+  type SubscriptionEntitlementsResponse,
   type VerificationPurchaseRecord,
   updateMarketingCampaign,
   updateProfileOffering,
@@ -118,6 +120,7 @@ import { fetchHybridFundingAccount } from '@/app/lib/hybridFundingApi';
 import type { HybridFundingReceiptRecord, HybridFundingSummary } from '@/app/lib/phase8HybridFunding';
 import { fetchLaunchpadCampaignsForAccount, updateLaunchpadCampaignStatusApi } from '@/app/lib/launchpadApi';
 import type { LaunchpadCampaign, LaunchpadCampaignStatus } from '@/app/lib/launchpad';
+import { resolveSubscriptionCapabilities } from '@/app/lib/subscriptionCapabilities';
 import {
   PlacementPill,
   placementHighlightedSurfaceCardClass,
@@ -402,6 +405,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
   const [supportFeedback, setSupportFeedback] = useState('');
   const [isCreatingSupportRequest, setIsCreatingSupportRequest] = useState(false);
   const [creatorPlanId, setCreatorPlanId] = useState<'free' | 'creator' | 'studio'>('free');
+  const [subscriptionEntitlements, setSubscriptionEntitlements] = useState<SubscriptionEntitlementsResponse | null>(null);
   const [platformAccounts, setPlatformAccounts] = useState<PlatformAccountRecord[]>([]);
   const [activeAccountSlug, setActiveAccountSlug] = useState(slug);
   const [accountFeedback, setAccountFeedback] = useState('');
@@ -478,6 +482,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
     fetchSubscriptionEntitlements()
       .then((entitlements) => {
         if (cancelled) return;
+        setSubscriptionEntitlements(entitlements);
         if (
           entitlements.creatorPlanId === 'free' ||
           entitlements.creatorPlanId === 'creator' ||
@@ -894,6 +899,13 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         icon: Heart,
         tone: 'highlight',
         href: launchpadCampaigns.length > 0 ? '/launchpad' : launchpadBuilderHref
+      },
+      {
+        title: 'Open team workspaces',
+        detail: 'Move into shared launch rooms, archive coordination, and multi-seat operating views.',
+        cta: 'Open workspaces',
+        icon: Users,
+        href: '/workspaces'
       }
     ],
     [
@@ -987,9 +999,16 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
         }, 0),
     [creatorPlanId, profile.transactionHistory]
   );
+  const subscriptionCapabilities = useMemo(
+    () => resolveSubscriptionCapabilities(subscriptionEntitlements),
+    [subscriptionEntitlements]
+  );
   const visibleTabs = useMemo(
-    () => TAB_ORDER.filter((tab) => workspaceMode === 'pro' || SIMPLE_TABS.includes(tab.id)),
-    [workspaceMode]
+    () =>
+      TAB_ORDER.filter(
+        (tab) => (workspaceMode === 'pro' && subscriptionCapabilities.hasTeamWorkspace) || SIMPLE_TABS.includes(tab.id)
+      ),
+    [subscriptionCapabilities.hasTeamWorkspace, workspaceMode]
   );
   const bundleOfferings = useMemo(
     () => profile.offerings.filter((entry) => bundleDraft.itemIds.includes(entry.id)),
@@ -1734,6 +1753,14 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                     Pro
                   </button>
                 </div>
+                {!subscriptionCapabilities.hasTeamWorkspace ? (
+                  <Link
+                    href="/subscription#team"
+                    className="rounded-full border border-[#d4af37]/20 bg-[#d4af37]/10 px-4 py-2 text-xs text-[#f3d780] hover:border-[#d4af37]/35"
+                  >
+                    Unlock pro workspaces
+                  </Link>
+                ) : null}
                 <Link href={`/profile/${profile.slug}`} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/25 px-4 py-2 text-sm text-white hover:border-[#d4af37]/35 hover:text-[#f3d780]">
                   <Store size={15} />
                   View Store
@@ -1884,6 +1911,15 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
                 </div>
               </div>
             </div>
+            {!subscriptionCapabilities.hasTeamWorkspace ? (
+              <div className="mt-4 rounded-[22px] border border-[#d4af37]/20 bg-[#d4af37]/10 p-4">
+                <p className="text-sm font-medium text-white">Phase 9 premium note</p>
+                <p className="mt-2 text-sm leading-7 text-[#f3deb1]">
+                  Pro workspaces, shared launch rooms, and multi-seat operating views now unlock on Studio or Team plans.
+                  Simple mode stays available for solo creators.
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-[28px] border border-[#d4af37]/20 bg-[linear-gradient(180deg,rgba(212,175,55,0.14),rgba(14,14,14,0.92))] p-5 shadow-[0_22px_48px_rgba(212,175,55,0.08)]">
@@ -2098,7 +2134,29 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
             </section>
           )}
 
-          {workspaceMode === 'pro' && (
+          {workspaceMode === 'pro' && !subscriptionCapabilities.hasTeamWorkspace && (
+          <section className="grid gap-6">
+            <Panel title="Unlock the pro workspace" eyebrow="Phase 9 premium lane" icon={Users}>
+              <div className="rounded-[24px] border border-[#d4af37]/20 bg-[#d4af37]/10 p-5">
+                <p className="text-base font-medium text-white">Studio and Team plans now gate the full shared operating workspace.</p>
+                <p className="mt-2 text-sm leading-7 text-[#f3deb1]">
+                  Upgrade to Studio / Team, Small Collective, or Community Hub to unlock shared launch rooms, premium collaboration tabs,
+                  and dedicated team workspace flows.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Link href="/subscription#team" className="rounded-full bg-[#d4af37] px-5 py-2 text-sm font-semibold text-black hover:bg-[#f4d370]">
+                    Compare team plans
+                  </Link>
+                  <Link href="/workspaces" className="rounded-full border border-white/10 px-5 py-2 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white">
+                    Preview workspace hub
+                  </Link>
+                </div>
+              </div>
+            </Panel>
+          </section>
+          )}
+
+          {workspaceMode === 'pro' && subscriptionCapabilities.hasTeamWorkspace && (
           <section className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
             <Panel title="Operate now" eyebrow="Focused pro workflow" icon={Plus}>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -2180,7 +2238,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
           </section>
           )}
 
-          {workspaceMode === 'pro' && (
+          {workspaceMode === 'pro' && subscriptionCapabilities.hasTeamWorkspace && (
           <section className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
             <Panel title="My Listings" eyebrow="Latest five" icon={Palette} action={<button onClick={() => setActiveTab('listings')} className="text-sm text-[#d4af37] hover:text-[#f4d370]">View all</button>}>
               <div className="space-y-3">
@@ -2491,7 +2549,7 @@ const [studioOfferingDraft, setStudioOfferingDraft] = useState({
             )}
           </Panel>
 
-          {workspaceMode === 'pro' && (
+          {workspaceMode === 'pro' && subscriptionCapabilities.hasTeamWorkspace && (
             <>
               <div className="grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
                 <Panel title="Unified Listing Studio" eyebrow="Edit without leaving Pro mode" icon={Settings2}>

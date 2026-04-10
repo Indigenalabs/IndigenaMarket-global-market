@@ -14,7 +14,7 @@ export default async function DataInsightsOpsPage() {
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-[28px] border border-[#d4af37]/20 bg-[#111111] p-6">
           <h1 className="text-2xl font-semibold text-white">Data & Insights</h1>
-          <p className="mt-2 max-w-3xl text-sm text-gray-400">Review report contracts, research requests, API subscriptions, and monetized insight delivery.</p>
+          <p className="mt-2 max-w-3xl text-sm text-gray-400">Review report contracts, research requests, API subscriptions, and Phase 9 premium subscription performance in one admin surface.</p>
         </section>
         <DataInsightsOpsClient />
       </div>

@@ -1,14 +1,34 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Wallet, CreditCard, Coins, Check, Sparkles, Star, Heart, Zap, Crown, BookOpen, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  Wallet,
+  CreditCard,
+  Coins,
+  Check,
+  Sparkles,
+  Star,
+  Heart,
+  Zap,
+  Crown,
+  BookOpen,
+  Users,
+  Infinity
+} from 'lucide-react';
 import Link from 'next/link';
 import PillarPasses from '../components/home/PillarPasses';
 import PromoBundles from '../components/home/PromoBundles';
 import TeamPlans from '../components/home/TeamPlans';
 import LifetimeMembership from '../components/home/LifetimeMembership';
 import { ACCESS_PLANS, CREATOR_PLANS, MEMBER_PLANS, getAnnualSavings } from '@/app/lib/monetization';
-import { cancelSubscriptionFamily, fetchSubscriptionEntitlements, startSubscriptionCheckout } from '@/app/lib/profileApi';
+import {
+  cancelSubscriptionFamily,
+  fetchSubscriptionEntitlements,
+  startSubscriptionCheckout,
+  type SubscriptionEntitlementsResponse
+} from '@/app/lib/profileApi';
+import { resolveSubscriptionCapabilities } from '@/app/lib/subscriptionCapabilities';
 
 const PAYMENT_DISCOUNTS = {
   card: 0,
@@ -41,51 +61,57 @@ function getDiscountedPrice(price: number, paymentMethod: keyof typeof PAYMENT_D
   return (price * (1 - discount / 100)).toFixed(2);
 }
 
+const EMPTY_ENTITLEMENTS: SubscriptionEntitlementsResponse = {
+  memberPlanId: 'free',
+  creatorPlanId: 'free',
+  accessPlanIds: [],
+  teamPlanIds: [],
+  lifetimePlanIds: [],
+  records: [],
+  metrics: {
+    activeCount: 0,
+    cancelledCount: 0,
+    churnCount: 0,
+    monthlyRecurringRevenue: 0,
+    annualRecurringRevenue: 0,
+    oneTimeRevenue: 0,
+    featureAdoption: {
+      creatorAnalyticsUnlocked: false,
+      unlimitedListingsUnlocked: false,
+      teamWorkspaceUnlocked: false,
+      archiveAccessUnlocked: false
+    }
+  }
+};
+
 export default function SubscriptionPage() {
   const [paymentMethod, setPaymentMethod] = useState<keyof typeof PAYMENT_DISCOUNTS>('card');
   const [isAnnual, setIsAnnual] = useState(false);
-  const [memberPlanId, setMemberPlanId] = useState<string>('free');
-  const [creatorPlanId, setCreatorPlanId] = useState<string>('free');
-  const [subscriptionMetrics, setSubscriptionMetrics] = useState<{
-    activeCount: number;
-    cancelledCount: number;
-    churnCount: number;
-    monthlyRecurringRevenue: number;
-    annualRecurringRevenue: number;
-    oneTimeRevenue: number;
-    featureAdoption: {
-      creatorAnalyticsUnlocked: boolean;
-      unlimitedListingsUnlocked: boolean;
-      teamWorkspaceUnlocked: boolean;
-      archiveAccessUnlocked: boolean;
-    };
-  } | null>(null);
+  const [entitlements, setEntitlements] = useState<SubscriptionEntitlementsResponse>(EMPTY_ENTITLEMENTS);
   const [workingKey, setWorkingKey] = useState('');
   const [message, setMessage] = useState('');
 
   const memberPlans = useMemo(() => MEMBER_PLANS.filter((plan) => plan.id !== 'free'), []);
   const creatorPlans = useMemo(() => CREATOR_PLANS, []);
   const archivePlans = useMemo(() => ACCESS_PLANS.filter((plan) => plan.scope === 'archive'), []);
+  const capabilities = useMemo(() => resolveSubscriptionCapabilities(entitlements), [entitlements]);
 
   useEffect(() => {
     let active = true;
-    async function loadEntitlements() {
-      const payload = await fetchSubscriptionEntitlements().catch(() => null);
-      if (!active || !payload) return;
-      setMemberPlanId(payload.memberPlanId || 'free');
-      setCreatorPlanId(payload.creatorPlanId || 'free');
-      setSubscriptionMetrics(payload.metrics || null);
-    }
-    void loadEntitlements();
+    fetchSubscriptionEntitlements()
+      .then((payload) => {
+        if (active && payload) setEntitlements(payload);
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
     };
   }, []);
 
   async function subscribe(
-    family: 'member' | 'creator' | 'access',
+    family: 'member' | 'creator' | 'access' | 'team' | 'lifetime',
     planId: string,
-    billingCadence: 'monthly' | 'annual'
+    billingCadence: 'monthly' | 'annual' | 'one-time'
   ) {
     const key = `${family}:${planId}:${billingCadence}`;
     setWorkingKey(key);
@@ -95,21 +121,27 @@ export default function SubscriptionPage() {
       planId,
       billingCadence,
       paymentMethod
-    }).catch(() => null);
+    }).catch((error) => {
+      setMessage(error instanceof Error ? error.message : 'Could not update subscription state.');
+      return null;
+    });
     if (!result) {
       setWorkingKey('');
-      setMessage('Could not update subscription state.');
       return;
     }
     if (result.mode === 'redirect') {
       window.location.href = result.checkoutUrl;
       return;
     }
-    setMemberPlanId(result.entitlements.memberPlanId || 'free');
-    setCreatorPlanId(result.entitlements.creatorPlanId || 'free');
-    setSubscriptionMetrics(result.entitlements.metrics || null);
+    setEntitlements(result.entitlements);
     setWorkingKey('');
-    setMessage('Subscription state updated.');
+    setMessage(
+      family === 'lifetime'
+        ? 'Lifetime membership activated.'
+        : family === 'team'
+          ? 'Team plan activated.'
+          : 'Subscription state updated.'
+    );
   }
 
   async function cancelFamily(family: 'member' | 'creator' | 'access' | 'team' | 'lifetime') {
@@ -122,9 +154,7 @@ export default function SubscriptionPage() {
         cancelAtPeriodEnd: true,
         reason: 'User requested cancellation'
       });
-      setMemberPlanId(result.entitlements.memberPlanId || 'free');
-      setCreatorPlanId(result.entitlements.creatorPlanId || 'free');
-      setSubscriptionMetrics(result.entitlements.metrics || null);
+      setEntitlements(result.entitlements);
       setMessage('Cancellation updated. Existing access remains active until the current paid period ends.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Subscription cancellation failed.');
@@ -154,20 +184,44 @@ export default function SubscriptionPage() {
       <section className="px-6 py-16 text-center">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-[#d4af37]/10 px-4 py-2">
           <Sparkles size={16} className="text-[#d4af37]" />
-          <span className="text-sm font-medium text-[#d4af37]">Subscriptions split by product family</span>
+          <span className="text-sm font-medium text-[#d4af37]">Phase 9 premium subscriptions</span>
         </div>
         <h1 className="mb-4 text-4xl font-bold text-white md:text-5xl">Choose the right revenue lane</h1>
         <p className="mx-auto max-w-2xl text-lg text-gray-400">
-          Members, creators, and archive users now have separate plan families. That keeps pricing cleaner and entitlement logic simpler.
+          Members, creators, archive users, teams, and legacy supporters now sit in clean product families with matching premium capabilities.
         </p>
-        {subscriptionMetrics ? (
-          <div className="mx-auto mt-8 grid max-w-5xl gap-4 md:grid-cols-4">
-            <Metric label="Active plans" value={String(subscriptionMetrics.activeCount)} />
-            <Metric label="MRR" value={`$${Math.round(subscriptionMetrics.monthlyRecurringRevenue).toLocaleString()}`} />
-            <Metric label="ARR" value={`$${Math.round(subscriptionMetrics.annualRecurringRevenue).toLocaleString()}`} />
-            <Metric label="Churned plans" value={String(subscriptionMetrics.churnCount)} />
-          </div>
-        ) : null}
+
+        <div className="mx-auto mt-8 grid max-w-6xl gap-4 md:grid-cols-4">
+          <Metric label="Active plans" value={String(entitlements.metrics?.activeCount || 0)} />
+          <Metric label="MRR" value={`$${Math.round(entitlements.metrics?.monthlyRecurringRevenue || 0).toLocaleString()}`} />
+          <Metric label="ARR" value={`$${Math.round(entitlements.metrics?.annualRecurringRevenue || 0).toLocaleString()}`} />
+          <Metric label="One-time revenue" value={`$${Math.round(entitlements.metrics?.oneTimeRevenue || 0).toLocaleString()}`} />
+        </div>
+
+        <div className="mx-auto mt-6 grid max-w-6xl gap-4 md:grid-cols-4">
+          <CurrentPlanCard label="Member" value={entitlements.memberPlanId} icon={Heart} />
+          <CurrentPlanCard label="Creator" value={entitlements.creatorPlanId} icon={Zap} />
+          <CurrentPlanCard
+            label="Archive access"
+            value={capabilities.activeArchivePlans.length ? capabilities.activeArchivePlans.join(', ') : 'none'}
+            icon={BookOpen}
+          />
+          <CurrentPlanCard
+            label="Team / legacy"
+            value={[
+              capabilities.activeTeamPlanId,
+              capabilities.activeLifetimePlanId
+            ].filter(Boolean).join(' · ') || 'none'}
+            icon={Infinity}
+          />
+        </div>
+
+        <div className="mx-auto mt-6 grid max-w-6xl gap-3 md:grid-cols-4">
+          <FeatureChip label="Creator analytics" active={capabilities.hasCreatorAnalytics} />
+          <FeatureChip label="Unlimited listings" active={capabilities.hasUnlimitedListings} />
+          <FeatureChip label="Team workspaces" active={capabilities.hasTeamWorkspace} />
+          <FeatureChip label="Archive access" active={capabilities.hasArchiveAccess} />
+        </div>
 
         <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-[#d4af37]/20 bg-[#141414] p-1">
           <button
@@ -211,22 +265,24 @@ export default function SubscriptionPage() {
           </button>
         </div>
 
-        {paymentMethod !== 'card' && (
+        {paymentMethod !== 'card' ? (
           <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#DC143C]/30 bg-[#DC143C]/10 px-4 py-2">
             <Check size={16} className="text-[#DC143C]" />
-            <span className="text-sm font-medium text-[#DC143C]">{PAYMENT_DISCOUNTS[paymentMethod]}% discount applied to recurring plans</span>
+            <span className="text-sm font-medium text-[#DC143C]">
+              {PAYMENT_DISCOUNTS[paymentMethod]}% discount applied to recurring plans
+            </span>
           </div>
-        )}
+        ) : null}
 
-        {message && (
+        {message ? (
           <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#d4af37]/20 bg-[#141414] px-4 py-2">
             <Check size={16} className="text-[#d4af37]" />
             <span className="text-sm font-medium text-white">{message}</span>
           </div>
-        )}
+        ) : null}
       </section>
 
-      <section className="bg-gradient-to-b from-[#0a0a0a] to-[#141414] px-6 py-16">
+      <section id="member" className="bg-gradient-to-b from-[#0a0a0a] to-[#141414] px-6 py-16">
         <div className="mx-auto max-w-7xl">
           <SectionHeader title="Member plans" detail="For supporters, collectors, and broad-access members." icon={Heart} />
           <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -247,14 +303,14 @@ export default function SubscriptionPage() {
                   badge={isAnnual && savings > 0 ? `Save $${savings.toFixed(2)}/year` : plan.badge}
                   emphasized={plan.popular}
                   Icon={Icon}
-                  ctaLabel={memberPlanId === plan.id ? 'Current plan' : isAnnual ? 'Choose annual' : 'Choose monthly'}
-                  disabled={memberPlanId === plan.id || workingKey === `member:${plan.id}:${cadence}`}
+                  ctaLabel={entitlements.memberPlanId === plan.id ? 'Current plan' : isAnnual ? 'Choose annual' : 'Choose monthly'}
+                  disabled={entitlements.memberPlanId === plan.id || workingKey === `member:${plan.id}:${cadence}`}
                   onSelect={() => subscribe('member', plan.id, cadence)}
                 />
               );
             })}
           </div>
-          {memberPlanId !== 'free' ? (
+          {entitlements.memberPlanId !== 'free' ? (
             <button
               onClick={() => void cancelFamily('member')}
               disabled={workingKey === 'cancel:member'}
@@ -266,9 +322,9 @@ export default function SubscriptionPage() {
         </div>
       </section>
 
-      <section className="bg-[#141414] px-6 py-16">
+      <section id="creator" className="bg-[#141414] px-6 py-16">
         <div className="mx-auto max-w-7xl">
-          <SectionHeader title="Creator plans" detail="For sellers, studios, and teams that want lower fees and stronger operating tools." icon={Zap} />
+          <SectionHeader title="Creator plans" detail="For sellers, studios, and teams that want lower fees and stronger analytics." icon={Zap} />
           <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
             {creatorPlans.map((plan) => {
               const Icon = CREATOR_ICONS[plan.id as keyof typeof CREATOR_ICONS] ?? Zap;
@@ -288,7 +344,7 @@ export default function SubscriptionPage() {
                   emphasized={plan.popular}
                   Icon={Icon}
                   ctaLabel={
-                    creatorPlanId === plan.id
+                    entitlements.creatorPlanId === plan.id
                       ? 'Current plan'
                       : basePrice === 0
                         ? 'Start free'
@@ -296,13 +352,13 @@ export default function SubscriptionPage() {
                           ? 'Choose annual'
                           : 'Choose monthly'
                   }
-                  disabled={creatorPlanId === plan.id || workingKey === `creator:${plan.id}:${cadence}`}
+                  disabled={entitlements.creatorPlanId === plan.id || workingKey === `creator:${plan.id}:${cadence}`}
                   onSelect={() => subscribe('creator', plan.id, cadence)}
                 />
               );
             })}
           </div>
-          {creatorPlanId !== 'free' ? (
+          {entitlements.creatorPlanId !== 'free' ? (
             <button
               onClick={() => void cancelFamily('creator')}
               disabled={workingKey === 'cancel:creator'}
@@ -314,7 +370,7 @@ export default function SubscriptionPage() {
         </div>
       </section>
 
-      <section className="bg-gradient-to-b from-[#141414] to-[#0a0a0a] px-6 py-16">
+      <section id="archive" className="bg-gradient-to-b from-[#141414] to-[#0a0a0a] px-6 py-16">
         <div className="mx-auto max-w-7xl">
           <SectionHeader title="Archive access" detail="Separate archive products for researchers, institutions, and premium heritage access." icon={BookOpen} />
           <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -324,6 +380,7 @@ export default function SubscriptionPage() {
               const price = getDiscountedPrice(basePrice, paymentMethod);
               const savings = getAnnualSavings(plan.monthlyPrice, plan.annualPrice);
               const cadence = isAnnual ? 'annual' : 'monthly';
+              const isCurrent = entitlements.accessPlanIds.includes(plan.id);
               return (
                 <PlanCard
                   key={plan.id}
@@ -335,20 +392,41 @@ export default function SubscriptionPage() {
                   badge={isAnnual && savings > 0 ? `Save $${savings.toFixed(2)}/year` : plan.badge}
                   emphasized={plan.scope === 'archive' && plan.id === 'researcher-access'}
                   Icon={Icon}
-                  ctaLabel={workingKey === `access:${plan.id}:${cadence}` ? 'Saving...' : isAnnual ? 'Choose annual' : 'Choose monthly'}
-                  disabled={workingKey === `access:${plan.id}:${cadence}`}
+                  ctaLabel={isCurrent ? 'Current plan' : isAnnual ? 'Choose annual' : 'Choose monthly'}
+                  disabled={isCurrent || workingKey === `access:${plan.id}:${cadence}`}
                   onSelect={() => subscribe('access', plan.id, cadence)}
                 />
               );
             })}
           </div>
+          {entitlements.accessPlanIds.length ? (
+            <button
+              onClick={() => void cancelFamily('access')}
+              disabled={workingKey === 'cancel:access'}
+              className="mt-5 rounded-full border border-white/10 px-5 py-2 text-sm text-gray-300 hover:border-[#d4af37]/30 hover:text-white disabled:opacity-60"
+            >
+              {workingKey === 'cancel:access' ? 'Updating...' : 'Cancel archive access at period end'}
+            </button>
+          ) : null}
         </div>
       </section>
 
       <PillarPasses />
-      <TeamPlans />
+      <TeamPlans
+        teamPlanIds={entitlements.teamPlanIds}
+        isAnnual={isAnnual}
+        workingKey={workingKey}
+        message={message}
+        onSubscribe={(planId, cadence) => subscribe('team', planId, cadence)}
+        onCancel={() => void cancelFamily('team')}
+      />
       <PromoBundles />
-      <LifetimeMembership />
+      <LifetimeMembership
+        lifetimePlanIds={entitlements.lifetimePlanIds}
+        workingKey={workingKey}
+        message={message}
+        onCheckout={(planId) => void subscribe('lifetime', planId, 'one-time')}
+      />
     </div>
   );
 }
@@ -370,6 +448,32 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-[#d4af37]/15 bg-[#141414] px-5 py-4 text-left">
       <p className="text-xs uppercase tracking-[0.18em] text-gray-500">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function CurrentPlanCard({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Heart }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#141414] p-4 text-left">
+      <div className="inline-flex rounded-full border border-[#d4af37]/20 bg-[#d4af37]/10 p-2 text-[#d4af37]">
+        <Icon size={14} />
+      </div>
+      <p className="mt-3 text-xs uppercase tracking-[0.18em] text-gray-500">{label}</p>
+      <p className="mt-2 text-base font-semibold capitalize text-white">{value.replaceAll('-', ' ')}</p>
+    </div>
+  );
+}
+
+function FeatureChip({ label, active }: { label: string; active: boolean }) {
+  return (
+    <div
+      className={`rounded-full border px-4 py-2 text-sm ${
+        active
+          ? 'border-[#d4af37]/25 bg-[#d4af37]/10 text-[#f3d780]'
+          : 'border-white/10 bg-[#141414] text-gray-400'
+      }`}
+    >
+      {label}
     </div>
   );
 }
@@ -401,7 +505,7 @@ function PlanCard({
 }) {
   return (
     <div className={`relative rounded-2xl p-6 transition-all hover:scale-[1.02] ${emphasized ? 'border-2 border-[#d4af37] bg-gradient-to-b from-[#d4af37]/20 to-[#141414]' : 'border border-[#d4af37]/20 bg-[#141414]'}`}>
-      {badge && <div className="absolute right-4 top-4 rounded-full bg-[#DC143C]/20 px-2 py-1 text-xs text-[#DC143C]">{badge}</div>}
+      {badge ? <div className="absolute right-4 top-4 rounded-full bg-[#DC143C]/20 px-2 py-1 text-xs text-[#DC143C]">{badge}</div> : null}
       <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${emphasized ? 'bg-[#d4af37] text-black' : 'bg-[#d4af37]/10 text-[#d4af37]'}`}>
         <Icon size={22} />
       </div>
@@ -409,7 +513,7 @@ function PlanCard({
       <p className="mb-4 text-sm text-gray-400">{description}</p>
       <div className="mb-6 flex items-baseline gap-1">
         <span className="text-3xl font-bold text-white">{price === '0.00' ? 'Free' : `$${price}`}</span>
-        {period !== 'forever' && price !== '0.00' && <span className="text-sm text-gray-400">/{period}</span>}
+        {period !== 'forever' && price !== '0.00' ? <span className="text-sm text-gray-400">/{period}</span> : null}
       </div>
       <ul className="mb-6 space-y-2">
         {features.map((feature) => (
