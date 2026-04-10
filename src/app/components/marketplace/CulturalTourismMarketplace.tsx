@@ -35,6 +35,8 @@ import {
   type PlacementSummaryEntry
 } from '@/app/lib/pillarPlacementController';
 import { getMarketplaceCardMerchandising } from './marketplaceCardMerchandising';
+import CommunityMarketplaceCard from '@/app/components/community/CommunityMarketplaceCard';
+import { fetchCommunityMarketplaceOffers, type CommunityMarketplaceOffer } from '@/app/lib/communityMarketplaceApi';
 
 const categoryOptions: Array<{ id: ExperienceKind | 'all'; label: string }> = [
   { id: 'all', label: 'All' },
@@ -173,6 +175,7 @@ export default function CulturalTourismMarketplace({ viewAllOnly = false }: Cult
   const [placementCreative, setPlacementCreative] = useState<Record<string, { image: string; headline: string; subheadline: string; cta: string }>>({});
   const [readinessError, setReadinessError] = useState<string | null>(null);
   const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [communityOffers, setCommunityOffers] = useState<CommunityMarketplaceOffer[]>([]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -259,6 +262,20 @@ export default function CulturalTourismMarketplace({ viewAllOnly = false }: Cult
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCommunityMarketplaceOffers({ pillar: 'cultural-tourism', search: searchInput || undefined })
+      .then((offers) => {
+        if (!cancelled) setCommunityOffers(offers.slice(0, 2));
+      })
+      .catch(() => {
+        if (!cancelled) setCommunityOffers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchInput]);
 
   const selectedCategoryLabel = useMemo(() => {
     return categoryOptions.find((x) => x.id === (query.kind ?? 'all'))?.label ?? 'All';
@@ -687,8 +704,32 @@ export default function CulturalTourismMarketplace({ viewAllOnly = false }: Cult
                   );
                 }
 
+                if ((idx === 1 || (items.length === 1 && idx === 0)) && communityOffers[0]) {
+                  acc.push(
+                    <CommunityMarketplaceCard
+                      key={`tour-community-${communityOffers[0].id}`}
+                      offer={communityOffers[0]}
+                      mode="mixed"
+                      className="h-full"
+                    />
+                  );
+                }
+
+                if (idx === 5 && communityOffers[1]) {
+                  acc.push(
+                    <CommunityMarketplaceCard
+                      key={`tour-community-${communityOffers[1].id}`}
+                      offer={communityOffers[1]}
+                      mode="mixed"
+                      className="h-full"
+                    />
+                  );
+                }
+
                 return acc;
-              }, [])}
+              }, items.length === 0 ? communityOffers.map((offer) => (
+                <CommunityMarketplaceCard key={`tour-community-empty-${offer.id}`} offer={offer} mode="mixed" className="h-full" />
+              )) : [])}
               {!viewAllOnly && items.length < 2 && (
                 <TourismPremiumPlacementCard
                   key={`${premiumPlacements[2].id}-fallback`}
