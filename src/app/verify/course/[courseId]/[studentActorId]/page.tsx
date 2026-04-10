@@ -36,6 +36,17 @@ export default async function CourseCertificateVerifyPage({
               <Detail label="Amount" value={`${certificate.currency} ${certificate.amount}`} />
               <Detail label="Verification URL" value={certificate.verificationUrl} />
             </div>
+            <div className="rounded-[24px] border border-[#d4af37]/20 bg-[#d4af37]/10 p-5">
+              <p className="text-xs uppercase tracking-[0.28em] text-[#d4af37]">XRPL Trust Anchor</p>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <Detail label="Trust status" value={certificate.trustStatus || 'pending'} />
+                <Detail label="Trust record" value={certificate.trustRecordId || 'Not linked yet'} />
+                <Detail label="XRPL transaction" value={certificate.xrplTransactionHash || 'Pending anchor'} />
+                <Detail label="Token ID" value={certificate.xrplTokenId || 'Pending token'} />
+                <Detail label="Ledger index" value={certificate.xrplLedgerIndex || 'Pending ledger'} />
+                <Detail label="Anchor URI" value={certificate.anchorUri || 'Pending anchor URI'} />
+              </div>
+            </div>
           </div>
         )}
       </div>

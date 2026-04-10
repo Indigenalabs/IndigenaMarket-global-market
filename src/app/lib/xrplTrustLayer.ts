@@ -26,6 +26,13 @@ export interface XrplTrustRecord {
   updatedAt: string;
 }
 
+const STATUS_RANK: Record<XrplTrustStatus, number> = {
+  draft: 0,
+  anchored: 1,
+  verified: 2,
+  revoked: 3
+};
+
 const RUNTIME_DIR = path.join(process.cwd(), '.runtime');
 const FILE = path.join(RUNTIME_DIR, 'xrpl-trust-layer.json');
 
@@ -89,6 +96,14 @@ function fromRow(row: Record<string, unknown>): XrplTrustRecord {
   };
 }
 
+function sortTrustRecords(records: XrplTrustRecord[]) {
+  return [...records].sort((a, b) => {
+    const statusDelta = STATUS_RANK[b.status] - STATUS_RANK[a.status];
+    if (statusDelta !== 0) return statusDelta;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+}
+
 export async function listXrplTrustRecords(input: { actorId: string; profileSlug?: string }) {
   const actorId = (input.actorId || '').trim().toLowerCase();
   const profileSlug = (input.profileSlug || '').trim();
@@ -101,7 +116,50 @@ export async function listXrplTrustRecords(input: { actorId: string; profileSlug
     if (error && !shouldFallback(error)) throw error;
   }
   const runtime = await readRuntime();
-  return runtime.filter((row) => row.actorId === actorId || (!!profileSlug && row.profileSlug === profileSlug));
+  return sortTrustRecords(runtime.filter((row) => row.actorId === actorId || (!!profileSlug && row.profileSlug === profileSlug)));
+}
+
+export async function listXrplTrustRecordsByAsset(input: {
+  assetType: XrplTrustAssetType;
+  assetId: string;
+  trustType?: XrplTrustType;
+}) {
+  const assetId = input.assetId.trim();
+  if (!assetId) return [];
+
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    let query = supabase
+      .from('xrpl_trust_records')
+      .select('*')
+      .eq('asset_type', input.assetType)
+      .eq('asset_id', assetId)
+      .order('updated_at', { ascending: false })
+      .limit(50);
+    if (input.trustType) query = query.eq('trust_type', input.trustType);
+    const { data, error } = await query;
+    if (!error && data) return sortTrustRecords(data.map((row) => fromRow(row as Record<string, unknown>)));
+    if (error && !shouldFallback(error)) throw error;
+  }
+
+  const runtime = await readRuntime();
+  return sortTrustRecords(
+    runtime.filter(
+      (row) =>
+        row.assetType === input.assetType &&
+        row.assetId === assetId &&
+        (!input.trustType || row.trustType === input.trustType)
+    )
+  );
+}
+
+export async function findXrplTrustRecordByAsset(input: {
+  assetType: XrplTrustAssetType;
+  assetId: string;
+  trustType?: XrplTrustType;
+}) {
+  const matches = await listXrplTrustRecordsByAsset(input);
+  return matches[0] || null;
 }
 
 export async function createXrplTrustRecord(input: {
@@ -167,4 +225,90 @@ export async function createXrplTrustRecord(input: {
   runtime.unshift(record);
   await writeRuntime(runtime);
   return record;
+}
+
+export async function updateXrplTrustRecord(input: {
+  id: string;
+  status?: XrplTrustStatus;
+  xrplTransactionHash?: string;
+  xrplTokenId?: string;
+  xrplLedgerIndex?: string;
+  anchorUri?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const id = input.id.trim();
+  if (!id) return null;
+
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const payload: Record<string, unknown> = {
+      updated_at: nowIso()
+    };
+    if (input.status) payload.status = input.status;
+    if (input.xrplTransactionHash !== undefined) payload.xrpl_transaction_hash = input.xrplTransactionHash || null;
+    if (input.xrplTokenId !== undefined) payload.xrpl_token_id = input.xrplTokenId || null;
+    if (input.xrplLedgerIndex !== undefined) payload.xrpl_ledger_index = input.xrplLedgerIndex || null;
+    if (input.anchorUri !== undefined) payload.anchor_uri = input.anchorUri || null;
+    if (input.metadata) payload.metadata = input.metadata;
+    const { data, error } = await supabase.from('xrpl_trust_records').update(payload).eq('id', id).select('*').maybeSingle();
+    if (!error && data) return fromRow(data as Record<string, unknown>);
+    if (error && !shouldFallback(error)) throw error;
+  }
+
+  const runtime = await readRuntime();
+  let updated: XrplTrustRecord | null = null;
+  const next = runtime.map((row) => {
+    if (row.id !== id) return row;
+    updated = {
+      ...row,
+      status: input.status || row.status,
+      xrplTransactionHash: input.xrplTransactionHash !== undefined ? text(input.xrplTransactionHash) : row.xrplTransactionHash,
+      xrplTokenId: input.xrplTokenId !== undefined ? text(input.xrplTokenId) : row.xrplTokenId,
+      xrplLedgerIndex: input.xrplLedgerIndex !== undefined ? text(input.xrplLedgerIndex) : row.xrplLedgerIndex,
+      anchorUri: input.anchorUri !== undefined ? text(input.anchorUri) : row.anchorUri,
+      metadata: input.metadata ? input.metadata : row.metadata,
+      updatedAt: nowIso()
+    };
+    return updated;
+  });
+  if (!updated) return null;
+  await writeRuntime(next);
+  return updated;
+}
+
+export async function ensureXrplTrustRecordForAsset(input: {
+  actorId: string;
+  profileSlug?: string;
+  assetType: XrplTrustAssetType;
+  assetId: string;
+  assetTitle: string;
+  trustType: XrplTrustType;
+  status?: XrplTrustStatus;
+  xrplTransactionHash?: string;
+  xrplTokenId?: string;
+  xrplLedgerIndex?: string;
+  anchorUri?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const existing = await findXrplTrustRecordByAsset({
+    assetType: input.assetType,
+    assetId: input.assetId,
+    trustType: input.trustType
+  });
+  if (!existing) {
+    return createXrplTrustRecord(input);
+  }
+
+  return (await updateXrplTrustRecord({
+    id: existing.id,
+    status: input.status || existing.status,
+    xrplTransactionHash: input.xrplTransactionHash ?? existing.xrplTransactionHash,
+    xrplTokenId: input.xrplTokenId ?? existing.xrplTokenId,
+    xrplLedgerIndex: input.xrplLedgerIndex ?? existing.xrplLedgerIndex,
+    anchorUri: input.anchorUri ?? existing.anchorUri,
+    metadata: {
+      ...existing.metadata,
+      ...(input.metadata || {})
+    }
+  })) || existing;
 }

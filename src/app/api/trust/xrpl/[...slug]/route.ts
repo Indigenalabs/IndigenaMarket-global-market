@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveRequestIdentity } from '@/app/lib/requestIdentity';
 import { findCreatorProfileSlugForActor } from '@/app/lib/accountAuthService';
-import { createXrplTrustRecord, listXrplTrustRecords } from '@/app/lib/xrplTrustLayer';
+import {
+  createXrplTrustRecord,
+  findXrplTrustRecordByAsset,
+  listXrplTrustRecords,
+  updateXrplTrustRecord
+} from '@/app/lib/xrplTrustLayer';
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ message }, { status });
@@ -18,7 +23,16 @@ function asObject(value: unknown) {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const { slug = [] } = await params;
   const [a, b] = slug;
-  if (a !== 'records' || b !== 'me') return fail('Unsupported XRPL trust endpoint.', 404);
+  if (a !== 'records') return fail('Unsupported XRPL trust endpoint.', 404);
+  if (b === 'asset') {
+    const assetType = asText(req.nextUrl.searchParams.get('assetType'), 'digital_art') as any;
+    const assetId = asText(req.nextUrl.searchParams.get('assetId')).trim();
+    const trustType = asText(req.nextUrl.searchParams.get('trustType')).trim() || undefined;
+    if (!assetId) return fail('assetId is required.', 400);
+    const record = await findXrplTrustRecordByAsset({ assetType, assetId, trustType: trustType as any });
+    return NextResponse.json({ data: record });
+  }
+  if (b !== 'me') return fail('Unsupported XRPL trust endpoint.', 404);
 
   const identity = await resolveRequestIdentity(req).catch(() => null);
   if (!identity?.actorId) return fail('Sign in required.', 401);
@@ -68,4 +82,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     }
   });
   return NextResponse.json({ data: record }, { status: 201 });
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+  const { slug = [] } = await params;
+  const [a, b] = slug;
+  if (a !== 'records' || b !== 'me') return fail('Unsupported XRPL trust endpoint.', 404);
+
+  const identity = await resolveRequestIdentity(req).catch(() => null);
+  if (!identity?.actorId) return fail('Sign in required.', 401);
+
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body) return fail('Invalid XRPL trust payload.');
+  const recordId = asText(body.recordId).trim();
+  if (!recordId) return fail('recordId is required.');
+
+  const profileSlug =
+    asText(body.profileSlug) || (await findCreatorProfileSlugForActor(identity.actorId).catch(() => null)) || '';
+  const mine = await listXrplTrustRecords({ actorId: identity.actorId, profileSlug });
+  const owned = mine.find((record) => record.id === recordId);
+  if (!owned) return fail('XRPL trust record not found.', 404);
+
+  const updated = await updateXrplTrustRecord({
+    id: recordId,
+    status: asText(body.status) as any,
+    xrplTransactionHash: body.xrplTransactionHash === undefined ? undefined : asText(body.xrplTransactionHash),
+    xrplTokenId: body.xrplTokenId === undefined ? undefined : asText(body.xrplTokenId),
+    xrplLedgerIndex: body.xrplLedgerIndex === undefined ? undefined : asText(body.xrplLedgerIndex),
+    anchorUri: body.anchorUri === undefined ? undefined : asText(body.anchorUri),
+    metadata: body.metadata ? asObject(body.metadata) : undefined
+  });
+  if (!updated) return fail('XRPL trust record not found.', 404);
+  return NextResponse.json({ data: updated });
 }

@@ -122,6 +122,12 @@ export interface CourseCertificateRecord {
   status: 'issued' | 'pending' | 'cancelled';
   issuedAt: string;
   verificationUrl: string;
+  trustRecordId?: string;
+  trustStatus?: 'draft' | 'anchored' | 'verified' | 'revoked';
+  xrplTransactionHash?: string;
+  xrplTokenId?: string;
+  xrplLedgerIndex?: string;
+  anchorUri?: string;
 }
 
 export interface CourseUserPublicProfile {
