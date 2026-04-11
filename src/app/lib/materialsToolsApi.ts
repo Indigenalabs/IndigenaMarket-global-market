@@ -20,6 +20,11 @@ import {
   type CoopCommitment,
   type OriginStory
 } from '@/app/materials-tools/data/pillar10Data';
+import type {
+  MaterialsToolsActionRecord,
+  MaterialsToolsReviewStatus,
+  MaterialsToolsSettingsOverview
+} from '@/app/lib/materialsToolsOps';
 import { isGlobalMockFallbackEnabled } from './mockMode';
 
 const ALLOW_MOCK_FALLBACK = isGlobalMockFallbackEnabled();
@@ -154,6 +159,11 @@ export interface MaterialsToolsLaunchAuditResponse {
     bookings: number;
     commitments: number;
   };
+}
+
+export interface MaterialsToolsSettingsOverviewResponse {
+  overview: MaterialsToolsSettingsOverview;
+  audit: MaterialsToolsLaunchAuditResponse;
 }
 
 export interface MaterialsToolsOrderDetailResponse {
@@ -379,6 +389,28 @@ export async function fetchMaterialsToolsLaunchAudit() {
   const res = await fetchWithTimeout(`${API_BASE}/materials-tools/launch-audit`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseApiError(res, 'Materials & Tools launch audit failed'));
   return (await res.json()) as MaterialsToolsLaunchAuditResponse;
+}
+
+export async function fetchMaterialsToolsSettingsOverview() {
+  const res = await fetchWithTimeout(`${API_BASE}/materials-tools/settings-overview`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseApiError(res, 'Materials & Tools settings overview failed'));
+  return (await res.json()) as MaterialsToolsSettingsOverviewResponse;
+}
+
+export async function reviewMaterialsToolsAction(body: {
+  id: string;
+  status: MaterialsToolsReviewStatus;
+  note?: string;
+  reviewedBy?: string;
+}) {
+  const res = await fetchWithTimeout(`${API_BASE}/materials-tools/action-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(await parseApiError(res, 'Materials & Tools action review failed'));
+  const json = await res.json();
+  return json.action as MaterialsToolsActionRecord;
 }
 
 export async function fetchMaterialsToolsOrderDetail(orderId: string) {

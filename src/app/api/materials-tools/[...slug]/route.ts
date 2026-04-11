@@ -3,10 +3,15 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { createSupabaseServerClient, isSupabaseServerConfigured } from '@/app/lib/supabase/server';
-import { resolveRequestActorId, resolveRequestWallet } from '@/app/lib/requestIdentity';
+import { resolveRequestActorId, resolveRequestIdentity, resolveRequestWallet } from '@/app/lib/requestIdentity';
 import { calculateTransactionQuote } from '@/app/lib/monetization';
 import { resolveRequestPlanIds } from '@/app/lib/monetizationEntitlements';
 import { appendFinanceLedgerEntry } from '@/app/lib/financeLedger';
+import {
+  type MaterialsToolsActionType,
+  createMaterialsToolsActionRecord,
+  getMaterialsToolsSettingsOverview,
+} from '@/app/lib/materialsToolsOps';
 import {
   coopOrders,
   coopCommitments,
@@ -541,18 +546,13 @@ async function saveAction(req: NextRequest, actionType: string) {
   const actorId = resolveRequestActorId(req);
   const wallet = resolveRequestWallet(req);
   if (actorId === 'guest' && !wallet) return fail('Wallet authentication required', 401);
-  if (isSupabaseServerConfigured()) {
-    const supabase = createSupabaseServerClient();
-    await supabase.from('materials_tools_actions').insert({
-      id: crypto.randomUUID(),
-      action_type: actionType,
-      actor_id: actorId,
-      wallet_address: wallet || null,
-      payload: body,
-      created_at: new Date().toISOString()
-    });
-  }
-  return NextResponse.json({ ok: true, actionType, actorId });
+  const action = await createMaterialsToolsActionRecord({
+    actionType: actionType as MaterialsToolsActionType,
+    actorId,
+    walletAddress: wallet,
+    payload: body
+  });
+  return NextResponse.json({ ok: true, actionType, actorId, action });
 }
 
 async function createOrder(req: NextRequest) {
@@ -855,17 +855,12 @@ async function attachProofDocument(req: NextRequest) {
   const productId = String(body.productId || '').trim();
   const label = String(body.label || '').trim();
   if (!productId || !label) return fail('Listing and proof label are required');
-  if (isSupabaseServerConfigured()) {
-    const supabase = createSupabaseServerClient();
-    await supabase.from('materials_tools_actions').insert({
-      id: crypto.randomUUID(),
-      action_type: 'listing-proof-document',
-      actor_id: actorId,
-      wallet_address: wallet || null,
-      payload: { productId, label },
-      created_at: new Date().toISOString()
-    });
-  }
+  await createMaterialsToolsActionRecord({
+    actionType: 'listing-proof-document',
+    actorId,
+    walletAddress: wallet,
+    payload: { productId, label }
+  });
   return NextResponse.json({
     ok: true,
     proofDocument: {
@@ -905,15 +900,13 @@ async function createCoopCommitment(req: NextRequest) {
     const supabase = createSupabaseServerClient();
     const { error } = await supabase.from('materials_tools_coop_commitments').insert(commitment);
     if (error) return fail('Unable to save co-op commitment', 500);
-    await supabase.from('materials_tools_actions').insert({
-      id: crypto.randomUUID(),
-      action_type: 'coop-commit',
-      actor_id: actorId,
-      wallet_address: wallet || null,
-      payload: body,
-      created_at: new Date().toISOString()
-    });
   }
+  await createMaterialsToolsActionRecord({
+    actionType: 'coop-commit',
+    actorId,
+    walletAddress: wallet,
+    payload: body
+  });
   return NextResponse.json({ ok: true, commitment });
 }
 
@@ -1051,7 +1044,7 @@ async function reconcileOrderPayment(req: NextRequest) {
   return NextResponse.json({ ok: true, paymentIntentId, eventId, paymentStatus: mappedStatus, fulfillmentStatus });
 }
 
-async function launchAudit() {
+async function buildLaunchAuditSnapshot() {
   const configured = isSupabaseServerConfigured();
   const base = {
     supabaseConfigured: configured,
@@ -1060,7 +1053,7 @@ async function launchAudit() {
     productionLike: configured && Boolean(process.env.MATERIALS_TOOLS_PAYMENT_WEBHOOK_SECRET)
   };
   if (!configured) {
-    return NextResponse.json({
+    return {
       ...base,
       source: 'mock',
       counts: {
@@ -1070,7 +1063,7 @@ async function launchAudit() {
         bookings: rentalBookings.length,
         commitments: coopCommitments.length
       }
-    });
+    };
   }
   const supabase = createSupabaseServerClient();
   const [listings, suppliersCount, ordersCount, bookingsCount, commitmentsCount] = await Promise.all([
@@ -1080,7 +1073,7 @@ async function launchAudit() {
     supabase.from('materials_tools_rental_bookings').select('*', { count: 'exact', head: true }),
     supabase.from('materials_tools_coop_commitments').select('*', { count: 'exact', head: true })
   ]);
-  return NextResponse.json({
+  return {
     ...base,
     source: 'api',
     counts: {
@@ -1090,6 +1083,20 @@ async function launchAudit() {
       bookings: Number(bookingsCount.count || 0),
       commitments: Number(commitmentsCount.count || 0)
     }
+  };
+}
+
+async function launchAudit() {
+  return NextResponse.json(await buildLaunchAuditSnapshot());
+}
+
+async function settingsOverview(req: NextRequest) {
+  const identity = await resolveRequestIdentity(req).catch(() => null);
+  const actorId = identity?.actorId || resolveRequestActorId(req);
+  if (actorId === 'guest') return fail('Wallet authentication required', 401);
+  return NextResponse.json({
+    overview: await getMaterialsToolsSettingsOverview(actorId),
+    audit: await buildLaunchAuditSnapshot()
   });
 }
 
@@ -1098,6 +1105,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   const [a, b] = slug;
   if (a === 'proof-file') return downloadProofDocument(req);
   if (a === 'launch-audit') return launchAudit();
+  if (a === 'settings-overview') return settingsOverview(req);
   if (a === 'listings') return listProducts(req);
   if (a === 'suppliers') return listSuppliers(req);
   if (a === 'rentals') return listRentals(req);
