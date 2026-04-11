@@ -128,7 +128,9 @@ export default function MaterialsToolsHomePage() {
             ['/materials-tools/bulk-coop', 'Join bulk co-op'],
             ['/materials-tools/rentals', 'Find tool libraries'],
             ['/materials-tools/wishlist', 'Post sourcing wishlist'],
-            ['/materials-tools/verified-supplier-application', 'Become a verified supplier']
+            ['/materials-tools/verified-supplier-application', 'Become a verified supplier'],
+            ['/materials-tools/settings-verification', 'Open verification settings'],
+            ['/materials-tools/supplier-dashboard', 'Supplier dashboard']
           ].map(([href, label]) => (
             <Link key={href} href={href} className="rounded-full border border-[#9b6b2b]/35 px-3 py-1.5 text-[#f0d7aa] hover:bg-[#9b6b2b]/12">
               {label}
