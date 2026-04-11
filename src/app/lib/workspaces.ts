@@ -92,8 +92,9 @@ async function writeRuntime(data: WorkspaceRoomRecord[]) {
 export async function listWorkspaceRooms() {
   if (!isSupabaseServerConfigured()) return readRuntime();
   const supabase = createSupabaseServerClient();
-  const { data } = await supabase.from('workspace_rooms').select('*').order('updated_at', { ascending: false });
-  return ((data || []) as any[]).map((row) => ({
+  const { data, error } = await supabase.from('workspace_rooms').select('*').order('updated_at', { ascending: false });
+  if (error || !data || data.length === 0) return readRuntime();
+  return (data as any[]).map((row) => ({
     id: String(row.id || ''),
     slug: String(row.slug || ''),
     title: String(row.title || ''),

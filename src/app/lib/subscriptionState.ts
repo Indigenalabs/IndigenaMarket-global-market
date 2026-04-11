@@ -366,3 +366,15 @@ export async function listActorSubscriptions(actorId: string, walletAddress = ''
   const runtime = await readRuntimeRecords();
   return runtime.filter((record) => record.actorId === actorId || (!!walletAddress && record.walletAddress === walletAddress));
 }
+
+export async function listAllSubscriptions(): Promise<SubscriptionRecord[]> {
+  if (isSupabaseServerConfigured()) {
+    const supabase = createSupabaseServerClient();
+    const { data } = await supabase
+      .from('creator_account_subscriptions')
+      .select('*')
+      .order('created_at', { ascending: false });
+    return (data || []).map((row) => normalizeSupabaseRecord(row as Record<string, unknown>));
+  }
+  return readRuntimeRecords();
+}
