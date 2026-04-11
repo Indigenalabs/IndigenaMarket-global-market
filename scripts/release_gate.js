@@ -100,7 +100,13 @@ async function main() {
     stdio: 'inherit',
     env: {
       ...process.env,
-      PORT: String(port)
+      PORT: String(port),
+      NEXT_PUBLIC_USE_APP_API: process.env.NEXT_PUBLIC_USE_APP_API || 'true',
+      ADVOCACY_ADMIN_WALLETS: process.env.ADVOCACY_ADMIN_WALLETS || '0xadmin-test,0xlegal-test',
+      ADVOCACY_LEGAL_OPS_WALLETS: process.env.ADVOCACY_LEGAL_OPS_WALLETS || '0xlegal-test',
+      ADVOCACY_PAYMENT_WEBHOOK_SECRET: process.env.ADVOCACY_PAYMENT_WEBHOOK_SECRET || 'test-webhook-secret',
+      MATERIALS_TOOLS_PAYMENT_WEBHOOK_SECRET:
+        process.env.MATERIALS_TOOLS_PAYMENT_WEBHOOK_SECRET || 'test-materials-webhook-secret'
     }
   });
 
@@ -130,6 +136,13 @@ async function main() {
     if (startupFailure) throw new Error(startupFailure);
     runStep('release gate audit', process.execPath, [path.join('scripts', 'run_audits.js'), baseUrl], {
       AUDIT_BASE_URL: baseUrl
+    });
+    runStep('release smoke', npmCommand, ['run', 'test:smoke:release'], {
+      PLAYWRIGHT_BASE_URL: baseUrl
+    });
+    runStep('launch readiness report', process.execPath, [path.join('scripts', 'launch_readiness_report.js'), baseUrl], {
+      LAUNCH_BASE_URL: baseUrl,
+      LAUNCH_SMOKE_PASSED: 'true'
     });
   } finally {
     stopServer();

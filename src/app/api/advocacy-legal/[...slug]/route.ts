@@ -765,6 +765,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     }
 
     const items = await getSupabasePublicIcipNotices(24);
+    if (!items.length) {
+      const fallbackItems = store.icipRegistryEntries
+        .filter((item) => item.status === 'approved' && item.publicListingState === 'public_summary' && item.publicSummary)
+        .map((item) => ({
+          id: item.id,
+          claimTitle: item.claimTitle,
+          communityName: item.communityName,
+          claimantName: item.claimantName,
+          assetType: item.assetType,
+          rightsScope: item.rightsScope,
+          protocolVisibility: item.protocolVisibility,
+          publicSummary: item.publicSummary || '',
+          publicProtocolNotice: item.publicProtocolNotice || '',
+          updatedAt: item.updatedAt
+        }))
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+      return NextResponse.json({ success: true, items: fallbackItems });
+    }
     return NextResponse.json({ success: true, items });
   }
 
@@ -792,7 +810,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     }
 
     const item = await getSupabasePublicIcipNoticeById(id);
-    if (!item) return fail('Public ICIP notice not found', 404);
+    if (!item) {
+      const fallbackItem = store.icipRegistryEntries.find(
+        (entry) => entry.id === id && entry.status === 'approved' && entry.publicListingState === 'public_summary' && entry.publicSummary
+      );
+      if (!fallbackItem) return fail('Public ICIP notice not found', 404);
+      return NextResponse.json({
+        success: true,
+        item: {
+          id: fallbackItem.id,
+          claimTitle: fallbackItem.claimTitle,
+          communityName: fallbackItem.communityName,
+          claimantName: fallbackItem.claimantName,
+          assetType: fallbackItem.assetType,
+          rightsScope: fallbackItem.rightsScope,
+          protocolVisibility: fallbackItem.protocolVisibility,
+          publicSummary: fallbackItem.publicSummary || '',
+          publicProtocolNotice: fallbackItem.publicProtocolNotice || '',
+          updatedAt: fallbackItem.updatedAt
+        }
+      });
+    }
     return NextResponse.json({ success: true, item });
   }
 

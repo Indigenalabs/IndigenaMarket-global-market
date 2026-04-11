@@ -407,7 +407,7 @@ export default function CulturalTourismExperienceDetailPage() {
 
                 {bookingResult?.status === 'confirmed' && (
                   <div className="rounded-lg border border-emerald-500/40 bg-emerald-900/10 p-3 text-xs text-emerald-300 space-y-2">
-                    <p>Ticket confirmed. Booking ID: {bookingResult.bookingId}{ticketId ? ` • Ticket ${ticketId}` : ''}</p>
+                    <p>Ticket confirmed. Booking ID: {bookingResult.bookingId}{ticketId ? ` | Ticket ${ticketId}` : ''}</p>
                     <div className="flex flex-wrap gap-2">
                       <Link href="/cultural-tourism/trips" className="px-2 py-1 rounded border border-emerald-500/40 text-emerald-300">Go to Trip Dashboard</Link>
                       <button onClick={() => router.push('/cultural-tourism/trips')} className="px-2 py-1 rounded border border-emerald-500/40 text-emerald-300">View Ticket & Itinerary</button>
@@ -425,7 +425,7 @@ export default function CulturalTourismExperienceDetailPage() {
                 <div className="mt-3 space-y-2">
                   {reviews.map((review) => (
                     <div key={review.reviewId} className="rounded-lg border border-[#d4af37]/15 bg-[#101010] p-3">
-                      <p className="text-sm text-[#d4af37]">{'★'.repeat(Math.max(1, Math.min(5, review.rating)))}</p>
+                      <p className="text-sm text-[#d4af37]">Rating: {Math.max(1, Math.min(5, review.rating))}/5</p>
                       <p className="text-sm text-gray-200 mt-1">{review.comment || 'No comment provided.'}</p>
                       <p className="text-xs text-gray-500 mt-1">{new Date(review.createdAt).toLocaleDateString()}</p>
                     </div>

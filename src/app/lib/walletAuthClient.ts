@@ -2,7 +2,6 @@
 import { clearLegacyWalletStorage, setStoredWalletAddress } from './walletStorage';
 import {
   clearAccountSessionStorage,
-  ensureAccountSessionAuth,
   fetchAccountSessionMe,
   getSupabaseBrowserSession,
   logoutAccountSessionClient,
@@ -200,13 +199,6 @@ export async function logoutWalletAuthSessionClient(): Promise<void> {
 export async function ensureWalletSessionAuth(): Promise<void> {
   const account = await syncAccountSessionFromSupabase().catch(() => null);
   if (account?.walletAddress) return;
-
-  try {
-    const ensured = await ensureAccountSessionAuth();
-    if (ensured?.walletAddress) return;
-  } catch {
-    // Fall through to the legacy wallet-session path for compatibility while Phase 1 rolls out.
-  }
 
   if (!browserSafe()) return;
   const currentJwt = (window.localStorage.getItem('indigena_user_jwt') || '').trim();

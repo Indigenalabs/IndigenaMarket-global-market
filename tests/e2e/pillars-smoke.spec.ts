@@ -33,5 +33,7 @@ test.describe('Pillar entry smoke', () => {
     expect(json.runtime).toBeTruthy();
     expect(json.integrations).toBeTruthy();
     expect(json.safety).toBeTruthy();
+    expect(json.launchReadiness).toBeTruthy();
+    expect(json.launchReadiness.groups.length).toBeGreaterThan(0);
   });
 });

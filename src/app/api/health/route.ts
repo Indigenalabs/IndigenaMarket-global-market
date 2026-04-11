@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isSupabaseServerConfigured } from '@/app/lib/supabase/server';
 import { isGlobalMockFallbackEnabled, isNamedMockFallbackEnabled } from '@/app/lib/mockMode';
+import { getLaunchReadinessSnapshot } from '@/app/lib/launchReadiness';
 
 export async function GET() {
   const supabaseConfigured = isSupabaseServerConfigured();
@@ -10,6 +11,7 @@ export async function GET() {
   const advocacyEvidenceBucketConfigured = Boolean(process.env.SUPABASE_ADVOCACY_EVIDENCE_BUCKET);
   const mockFallbackEnabled = isGlobalMockFallbackEnabled();
   const tourismMocksEnabled = isNamedMockFallbackEnabled('NEXT_PUBLIC_ALLOW_TOURISM_MOCKS');
+  const launchReadiness = await getLaunchReadinessSnapshot();
 
   return NextResponse.json({
     status: 'ok',
@@ -34,6 +36,7 @@ export async function GET() {
         advocacyWebhookConfigured &&
         !mockFallbackEnabled &&
         !tourismMocksEnabled
-    }
+    },
+    launchReadiness
   });
 }
