@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchWithTimeout, parseApiError } from '@/app/lib/apiClient';
 
 function canRecoverAdminSession() {
@@ -14,7 +14,11 @@ function canRecoverAdminSession() {
 export default function AdminSessionRecovery() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const canRecover = canRecoverAdminSession();
+  const [canRecover, setCanRecover] = useState(false);
+
+  useEffect(() => {
+    setCanRecover(canRecoverAdminSession());
+  }, []);
 
   async function recover() {
     setBusy(true);

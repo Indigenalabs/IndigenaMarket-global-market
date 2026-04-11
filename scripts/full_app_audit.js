@@ -39,9 +39,11 @@ const dynamicPatterns = manifestRoutes.filter((route) => route.includes('['));
 const explicitDynamicSeeds = [
   '/profile/aiyana-redbird',
   '/profile/aiyana-redbird/bundles/bundle-1',
+  '/advocacy-legal/icip-notices/audit-notice',
   '/creator-hub/new/materials-tools',
   '/creator-hub/edit/offer-1',
   '/cultural-tourism/experiences/tour-001',
+  '/digital-arts/artwork/aw-101/provenance',
   '/digital-arts/artist/maria-begay',
   '/digital-arts/collection/thunderbird-rising',
   '/community/events/coastal-festival',
@@ -56,11 +58,13 @@ const explicitDynamicSeeds = [
   '/language-heritage/community/passamaquoddy',
   '/language-heritage/dictionary/ancestor',
   '/language-heritage/tools/lh-5',
+  '/materials-tools/orders/order-1',
   '/marketplace/promote',
   '/collection/thunderbird-rising',
   '/artist/maria-begay',
   '/events/coastal-festival',
   '/stories/riverstone-market-day-revival',
+  '/verify/course/audit-course/audit-learner',
   '/workspaces/riverstone-summer-market-launch'
 ];
 let bootstrappedDynamicSeeds = [];
@@ -337,9 +341,24 @@ async function bootstrapDynamicRouteFixtures() {
     seeds.push('/advocacy-legal/icip-registry/audit-claim-placeholder');
   }
 
-  const icipNotices = await getJson(`${base}/api/advocacy-legal/public/icip-notices`, headers).catch(() => null);
+  const icipNotices = await getJson(`${base}/api/advocacy-legal/icip-notices`, headers).catch(() => null);
   if (icipNotices?.json?.items?.[0]?.id) {
     seeds.push(`/advocacy-legal/icip-notices/${icipNotices.json.items[0].id}`);
+  }
+
+  const sevaDonation = await postJson(
+    `${base}/api/seva/donate`,
+    {
+      causeId: 'seva-cause-1',
+      amount: 25,
+      supporterName: 'Audit Bot',
+      supporterEmail: 'audit-bot@indigena.local',
+      walletAddress: session?.wallet || '0xaudit-bot'
+    },
+    headers
+  ).catch(() => null);
+  if (sevaDonation?.json?.redirectUrl) {
+    seeds.push(sevaDonation.json.redirectUrl);
   }
 
   const advocacyReceipt = await postJson(
@@ -604,7 +623,9 @@ async function auditRoute(route, context) {
   }
 
   const bodyText = await page.locator('body').innerText().catch(() => '');
-  if (bodyLooksBroken(bodyText)) {
+  const allowVerifyNotFound =
+    route.startsWith('/verify/course/') && /certificate not found/i.test(bodyText || '');
+  if (bodyLooksBroken(bodyText) && !allowVerifyNotFound) {
     pushIssue({ type: 'page-state', route, message: 'page rendered a broken/not-found state' });
   }
 

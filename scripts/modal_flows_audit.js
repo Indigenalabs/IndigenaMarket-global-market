@@ -76,6 +76,16 @@ async function createContext(browser, session) {
   return context;
 }
 
+async function hydrateWalletSession(page, session) {
+  if (!session) return;
+  await page.evaluate(({ session, actorId }) => {
+    window.localStorage.setItem('indigena_wallet_address', session.wallet);
+    window.localStorage.setItem('indigena_user_jwt', session.accessToken);
+    window.localStorage.setItem('indigena_user_refresh_token', session.refreshToken);
+    window.localStorage.setItem('indigena_user_id', actorId);
+  }, { session, actorId });
+}
+
 async function auditFlow(context, name, fn) {
   const page = await context.newPage();
   const result = {
@@ -128,7 +138,8 @@ async function auditFlow(context, name, fn) {
 
   results.push(await auditFlow(context, 'digital-arts buy modal', async (page) => {
     await page.goto(`${base}/digital-arts`, { waitUntil: 'networkidle', timeout: 20000 });
-    await page.getByRole('button', { name: /^buy now$/i }).nth(1).click();
+    await page.getByRole('button', { name: /^buy$/i }).first().click();
+    await page.getByRole('button', { name: /buy now for/i }).waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: /buy now for/i }).click();
     await page.getByText(/purchase initiated!/i).waitFor({ timeout: 10000 });
   }));
@@ -168,6 +179,7 @@ async function auditFlow(context, name, fn) {
 
   results.push(await auditFlow(context, 'cultural-tourism booking drawer', async (page) => {
     await page.goto(`${base}/cultural-tourism/experiences/tour-001`, { waitUntil: 'networkidle', timeout: 20000 });
+    await hydrateWalletSession(page, session);
     await page.getByLabel(/traveler name/i).fill('Aiyana Redbird');
     await page.getByLabel(/traveler email/i).fill('aiyana@example.com');
     const checkboxes = page.locator('input[type="checkbox"]');
@@ -175,11 +187,28 @@ async function auditFlow(context, name, fn) {
     for (let i = 0; i < count; i += 1) {
       await checkboxes.nth(i).check({ force: true });
     }
-    await page.getByRole('button', { name: /reserve ticket/i }).click();
+    const reserveButton = page.getByRole('button', { name: /reserve ticket/i });
+    await reserveButton.waitFor({ state: 'visible', timeout: 10000 });
     await page.waitForFunction(() => {
-      const body = document.body?.innerText || '';
-      return /booking id|complete payment|payment status|open wallet page|wallet required/i.test(body);
+      const button = Array.from(document.querySelectorAll('button')).find((entry) =>
+        /reserve ticket/i.test(entry.textContent || '')
+      );
+      return Boolean(button) && !button.disabled;
     }, { timeout: 10000 });
+    await Promise.all([
+      page.waitForResponse((response) => {
+        return (
+          response.url().includes('/api/cultural-tourism/bookings') &&
+          response.request().method() === 'POST' &&
+          response.status() < 400
+        );
+      }, { timeout: 10000 }),
+      reserveButton.click()
+    ]);
+    await Promise.race([
+      page.getByRole('button', { name: /pay & confirm ticket/i }).waitFor({ timeout: 10000 }),
+      page.getByText(/ticket confirmed\./i).waitFor({ timeout: 10000 })
+    ]);
   }));
 
   await context.close();

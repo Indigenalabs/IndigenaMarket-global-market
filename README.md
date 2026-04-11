@@ -140,6 +140,12 @@ Run the enforced release gate:
 npm run test:release-gate
 ```
 
+Generate the latest launch readiness report from a running app:
+
+```bash
+npm run test:launch-readiness -- http://127.0.0.1:3000
+```
+
 The release gate does all of the following:
 
 1. builds the app
@@ -148,7 +154,19 @@ The release gate does all of the following:
    - full route audit
    - commerce CTA audit
    - modal flow audit
-4. fails if any route coverage gaps or interaction regressions are found
+   - smoke tests for pillar routes and launch-readiness admin access
+4. writes `.runtime/launch-readiness.json`
+5. fails if any route coverage gaps or interaction regressions are found
+
+The admin launch-hardening surface is available at:
+
+- `/admin/launch-readiness`
+
+It reads:
+
+- environment and integration posture
+- audit coverage from `.runtime/audit-summary.json`
+- the latest generated launch report from `.runtime/launch-readiness.json`
 
 ## Playwright checks
 
